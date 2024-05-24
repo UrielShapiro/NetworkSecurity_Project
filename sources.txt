@@ -1,0 +1,50 @@
+Visualize network traffic - https://github.com/rwhalb/mtraceroute
+
+Tools that use scapy - https://github.com/secdev/awesome-scapy
+
+Scapy - https://github.com/secdev/scapy
+Documentation - https://moodlearn.ariel.ac.il/pluginfile.php/3320709/mod_resource/content/1/Scapy%20Documentation.pdf
+
+Nmap, short for "Network Mapper," is a powerful open-source tool used for network exploration, security scanning, and auditing. It's designed to discover hosts and services on a computer network, thus creating a "map" of the network's structure. Nmap works by sending packets to the target network and then analyzing the responses to determine which hosts and services are available, what operating systems are being used, what ports are open, and other essential network-related information.
+It's widely used by network administrators, security professionals, and penetration testers to identify vulnerabilities, manage network inventory, and secure networks against potential threats. Nmap provides a range of features and options for advanced network scanning and analysis, making it an invaluable tool in network security and administration.
+
+TCP Replay - TCP replay is a technique used in network testing and analysis to replay previously captured network traffic onto a network. This allows researchers, network administrators, and security professionals to simulate network conditions or replay specific network events for analysis or testing purposes.
+
+Chat-GPT on what we should use:
+Creating an intrusion detection system (IDS) in Python is a challenging but rewarding task. Here's a high-level overview of what you'll need and how to approach it:
+
+Choose an Approach:
+
+Signature-based detection: Look for known patterns of attacks in network traffic or system logs.
+Anomaly-based detection: Detect deviations from normal behavior.
+Hybrid approach: Combine signature-based and anomaly-based detection for better coverage.
+Select Tools and Libraries:
+
+Scapy: For capturing and analyzing network packets.
+Python's built-in socket module: For lower-level network communication.
+python-nmap: For active network scanning and fingerprinting.
+Machine learning libraries like scikit-learn or TensorFlow for anomaly detection (if you choose an anomaly-based approach).
+Define Detection Rules:
+
+For signature-based detection, define rules based on known attack patterns (e.g., Snort-style rules).
+For anomaly-based detection, define baselines of normal behavior and set thresholds for deviations.
+Capture and Analyze Network Traffic:
+
+Use Scapy or socket to capture packets on the network interface.
+Analyze packet headers and payloads to identify suspicious patterns or anomalies.
+Perform Active Scanning:
+
+Use python-nmap to scan your network for open ports, services, and potential vulnerabilities.
+Compare scan results with known vulnerabilities to identify potential risks.
+Implement Real-Time Analysis:
+
+Continuously monitor network traffic and system logs for suspicious activity.
+Use multithreading or asynchronous programming to handle real-time analysis efficiently.
+Alerting and Reporting:
+
+Trigger alerts (e.g., emails, SMS, syslog messages) when suspicious activity is detected.
+Generate reports summarizing detected incidents and potential threats.
+Testing and Tuning:
+
+Test your IDS with simulated attacks and real-world traffic.
+Fine-tune detection rules and thresholds based on feedback and performance.
