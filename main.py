@@ -1,10 +1,11 @@
 import queue
 from pathlib import Path
 from threading import Condition, Thread
-from scapy.interfaces import  ifaces
 
-import PacketAnalyzer
+from scapy.interfaces import ifaces
+
 import FlowAnalyzer
+import PacketAnalyzer
 import PacketSniffer
 
 # ANSI color codes for colored output
@@ -14,18 +15,20 @@ YELLOW = "\033[93m"
 BLUE = "\033[94m"
 RESET = "\033[0m"  # Reset to default color
 
+
 class IDS:
-    def __init__(self, sniff_flag: bool, sniff_interface:str = None, pcap_path: str = None):
-        self.packet_flow = dict()
+    def __init__(self, sniff_flag: bool, sniff_interface: str = None, pcap_path: str = None):
+        self.packet_flow = {}
         self.snifferFlag = sniff_flag
         self.__resolvedIPs = {}
         self.__running = False
         self.__sniffing_thread = None
         self.__packet_analyzer_thread = None
-        self.packet_arr = queue.Queue()
+        self.packet_queue = queue.Queue()
         self.cond = Condition()
         self.reading_done = False
         self.analyzing_done = False
+        self.flow_analyzer = FlowAnalyzer.FlowAnalyzer()
 
         if sniff_flag:
             self.interface = sniff_interface
@@ -49,7 +52,7 @@ class IDS:
     def stop(self):
         self.__running = False
         with self.cond:
-            self.cond.notify_all() # Ensure any waiting threads are notified
+            self.cond.notify_all()  # Ensure any waiting threads are notified
         self.__sniffing_thread.join()
         self.__packet_analyzer_thread.join()
 
@@ -57,34 +60,35 @@ class IDS:
         while self.is_running():
             packet = PacketSniffer.sniff_packets(self.interface)
             with self.cond:
-                self.packet_arr.put(packet)
+                self.packet_queue.put(packet)
                 self.cond.notify()
 
     def read_pcap(self):
         for p in PacketSniffer.read_pcap(self.path):
             with self.cond:
-                self.packet_arr.put(p)
+                self.packet_queue.put(p)
                 self.cond.notify()
 
             with self.cond:
                 self.reading_done = True
-                self.cond.notify_all() # Notify all waiting threads that reading is done
+                self.cond.notify_all()  # Notify all waiting threads that reading is done
 
     def analyze_packet(self):
         while self.is_running():
             if not self.snifferFlag:
                 with self.cond:
-                    while self.packet_arr.empty() and not self.reading_done:
+                    while self.packet_queue.empty() and not self.reading_done:
                         self.cond.wait()  # Wait for new packets or reading to complete
 
-                        if self.packet_arr.empty() and self.reading_done:
-                            break # Break out of the loop if no more packets are available and reading is done
+                        if self.packet_queue.empty() and self.reading_done:
+                            break  # Break out of the loop if no more packets are available and reading is done
 
-            packet = self.packet_arr.get()
+            packet = self.packet_queue.get()
 
             five_tuple = PacketAnalyzer.PacketAnalyzer(packet)
             if five_tuple in self.packet_flow:
                 self.packet_flow[five_tuple].update_packet(packet)
+                break
             else:
                 self.packet_flow[five_tuple] = FlowAnalyzer.FlowAnalyzer(packet)
 
@@ -93,12 +97,13 @@ class IDS:
                     self.analyzing_done = True
                     self.cond.notify_all()  # Notify main thread that analysis is complete
 
+
 def main(sniff_flag: bool, sniff_interface: str = None, pcap_path: str = None):
     ids = IDS(sniff_flag, sniff_interface, pcap_path)
     ids.start()
     while ids.is_running():
         with ids.cond:
-            if not ids.snifferFlag: # If reading from a pcap file, wait for reading and analyzing to complete
+            if not ids.snifferFlag:  # If reading from a pcap file, wait for reading and analyzing to complete
                 if not ids.reading_done or not ids.analyzing_done:
                     ids.cond.wait()
                 if ids.reading_done and ids.analyzing_done:
@@ -110,30 +115,6 @@ def main(sniff_flag: bool, sniff_interface: str = None, pcap_path: str = None):
                 break
         break
     ids.stop()
-
-    # while ids.is_running():
-    #     p = ids.packet_arr.get()
-    #     for a in p:
-    #         a.show()
-    # while ids.is_running():
-    #     if ids.snifferFlag:
-    #         packet = sniff_packets(sys.argv[2])
-    #     else:
-    #         packet = read_pcap(sys.argv[1])
-    # try:
-    #     packets = rdpcap(argv)
-    #     flow = dict()
-    #     for packet in packets:
-    #         five_tuple = PacketAnalyzer.export_to_five_tuple(packet)
-    #         if five_tuple in flow:
-    #             flow[five_tuple].update_packet(packet)
-    #         else:
-    #             flow[five_tuple] = PacketFlow(packet)
-    # except Exception as e:
-    #     print(f"An error occurred: {e}")
-    #     sys.exit(1)
-
-
 
 
 if __name__ == "__main__":
@@ -159,13 +140,14 @@ if __name__ == "__main__":
         while True:
             choice = int(input("Select the interface by number: "))
             if choice not in interfaces_map.keys():
-                print(f"{RED}Invalid choice. Available values are: ({', '.join(str(key) for key in interfaces_map.keys())}){RESET}")
+                print(
+                    f"{RED}Invalid choice. Available values are: ({', '.join(str(key) for key in interfaces_map.keys())}){RESET}")
                 continue
             break
         interface = interfaces_map[choice]
         main(True, interface)
 
-    else: # Read from a pcap file
+    else:  # Read from a pcap file
         while True:
             path = input("Enter the path to the pcap file: ")
             if not path.endswith(".pcap"):
