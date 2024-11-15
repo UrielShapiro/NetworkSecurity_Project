@@ -3,11 +3,16 @@ from scapy.layers.dhcp import DHCP
 from scapy.layers.dns import DNS
 from scapy.layers.inet import IP, TCP, UDP, ICMP
 from scapy.layers.inet6 import IPv6, ICMPv6EchoRequest, ICMPv6EchoReply
-from scapy.layers.l2 import Ether
+from scapy.layers.l2 import Ether, ARP
 from PacketExceptions import TCPFlagsException, UDPPortException, MacAddressException
 
 class PacketAnalyzer:
     def __init__(self, packet):
+
+        self.packets = []
+        self.packets.append(packet)
+        self.abnormalities = {}
+
         self.TCP = {
             "SYN": False,
             "SYN ACK": False,
@@ -77,6 +82,10 @@ class PacketAnalyzer:
 
             self.analyze_packet(packet)
 
+    def update_packet(self, packet: scapy.Packet):
+        self.packets.append(packet)
+        self.analyze_packet(packet)
+
     def analyze_packet(self, packet: scapy.Packet):
         # Check if it's an IP packet (IPv4)
         if Ether in packet:
@@ -105,62 +114,65 @@ class PacketAnalyzer:
         all_flags = FIN | SYN | ACK | PSH | RST | URG | ECE | CWR
         packet_flags = packet[TCP].flags
         # Check anomalies first:
+        try:
+            # Check if all flags are set
+            if packet_flags & all_flags == all_flags:
+                self.TCP["SYN"] = False
+                self.TCP["SYN ACK"] = False
+                self.TCP["ACK"] = False
+                raise TCPFlagsException("All flags are set together")
 
-        # Check if all flags are set
-        if packet_flags & all_flags == all_flags:
-            self.TCP["SYN"] = False
-            self.TCP["SYN ACK"] = False
-            self.TCP["ACK"] = False
-            # raise TCPFlagsException("All flags are set together")
+            # Check for SYN, ACK, FIN flags raised together
+            if packet_flags & SYN and packet_flags & ACK and packet_flags & FIN:
+                self.TCP["SYN"] = False
+                self.TCP["SYN ACK"] = False
+                self.TCP["ACK"] = False
+                raise TCPFlagsException("SYN, ACK and FIN flags are set together")
 
-        # Check for SYN, ACK, FIN flags raised together
-        if packet_flags & SYN and packet_flags & ACK and packet_flags & FIN:
-            self.TCP["SYN"] = False
-            self.TCP["SYN ACK"] = False
-            self.TCP["ACK"] = False
-            # raise TCPFlagsException("SYN, ACK and FIN flags are set together")
+            # Check for SYN and FIN flags together
+            if packet_flags & SYN and packet_flags & ACK:
+                self.TCP["SYN"] = False
+                self.TCP["SYN ACK"] = False
+                self.TCP["ACK"] = False
+                raise TCPFlagsException("SYN and FIN flags are set together")
 
-        # Check for SYN and FIN flags together
-        if packet_flags & SYN and packet_flags & ACK:
-            self.TCP["SYN"] = False
-            self.TCP["SYN ACK"] = False
-            self.TCP["ACK"] = False
-            # raise TCPFlagsException("SYN and FIN flags are set together")
+            # Check for SYN and RST flags together
+            if packet_flags & SYN and packet_flags & RST:
+                self.TCP["SYN"] = False
+                self.TCP["SYN ACK"] = False
+                self.TCP["ACK"] = False
+                raise TCPFlagsException("SYN and RST flags are set together")
 
-        # Check for SYN and RST flags together
-        if packet_flags & SYN and packet_flags & RST:
-            self.TCP["SYN"] = False
-            self.TCP["SYN ACK"] = False
-            self.TCP["ACK"] = False
-            # raise TCPFlagsException("SYN and RST flags are set together")
+            # Check for FIN and RST flags together
+            if packet_flags & FIN and packet_flags & RST:
+                self.TCP["SYN"] = False
+                self.TCP["SYN ACK"] = False
+                self.TCP["ACK"] = False
+                raise TCPFlagsException("FIN and RST flags are set together")
 
-        # Check for FIN and RST flags together
-        if packet_flags & FIN and packet_flags & RST:
-            self.TCP["SYN"] = False
-            self.TCP["SYN ACK"] = False
-            self.TCP["ACK"] = False
-            # raise TCPFlagsException("FIN and RST flags are set together")
+            # Check if Only FIN flag is set alone
+            if packet_flags & FIN and packet_flags & ~FIN == 0:
+                self.TCP["SYN"] = False
+                self.TCP["SYN ACK"] = False
+                self.TCP["ACK"] = False
+                raise TCPFlagsException("Only FIN flag is set")
 
-        # Check if Only FIN flag is set alone
-        if packet_flags & FIN and packet_flags & ~FIN == 0:
-            self.TCP["SYN"] = False
-            self.TCP["SYN ACK"] = False
-            self.TCP["ACK"] = False
-            # raise TCPFlagsException("Only FIN flag is set")
+            # Check for PSH flag raised alone
+            if packet_flags & PSH and packet_flags & ~PSH == 0:
+                self.TCP["SYN"] = False
+                self.TCP["SYN ACK"] = False
+                self.TCP["ACK"] = False
+                raise TCPFlagsException("Only PSH flag is set")
 
-        # Check for PSH flag raised alone
-        if packet_flags & PSH and packet_flags & ~PSH == 0:
-            self.TCP["SYN"] = False
-            self.TCP["SYN ACK"] = False
-            self.TCP["ACK"] = False
-            # raise TCPFlagsException("Only PSH flag is set")
-
-        # Check for URG flag raised alone
-        if packet_flags & URG and packet_flags & ~URG == 0:
-            self.TCP["SYN"] = False
-            self.TCP["SYN ACK"] = False
-            self.TCP["ACK"] = False
-            # raise TCPFlagsException("Only URG flag is set")
+            # Check for URG flag raised alone
+            if packet_flags & URG and packet_flags & ~URG == 0:
+                self.TCP["SYN"] = False
+                self.TCP["SYN ACK"] = False
+                self.TCP["ACK"] = False
+                raise TCPFlagsException("Only URG flag is set")
+        except TCPFlagsException as e:
+            print("TCP Flags Abnormality " + e.message)
+            self.add_abnormality("TCP Flags Abnormality " + e.message)
 
         # Check for RST flags
         if packet_flags & RST or (packet_flags & FIN and packet_flags & ACK):
@@ -178,9 +190,6 @@ class PacketAnalyzer:
         # Check for ACK flag (Not only initial ACK)
         elif packet[TCP].flags & ACK and self.TCP["SYN"] and self.TCP["SYN ACK"]:
             self.TCP["ACK"] = True
-        else:
-            pass
-            # raise TCPFlagsException("Invalid flag combination")
 
     def process_udp(self, packet):
         # Check for DNS
@@ -201,11 +210,18 @@ class PacketAnalyzer:
         else:
             pass
 
-    def process_mac(self, packet):
+    def process_mac(self, packet: scapy.Packet):
         if (self.src_mac != packet[Ether].src and self.src_mac != packet[Ether].dst) \
                 or (self.dst_mac != packet[Ether].src and self.dst_mac != packet[Ether].dst):
             # raise MacAddressException("MAC address mismatch")
             pass
+
+
+    def add_abnormality(self, anomaly: str):
+        if anomaly not in self.abnormalities:
+            self.abnormalities[anomaly] = 1
+        else:
+            self.abnormalities[anomaly] += 1
 
     def __reversed__(self):
         self.src_ip, self.dst_ip = self.dst_ip, self.src_ip
@@ -223,10 +239,54 @@ class PacketAnalyzer:
     def __eq__(self, other):
         if not isinstance(other, PacketAnalyzer):
             return False
-        return (self.src_ip, self.dst_ip, self.src_port, self.dst_port, self.protocol) == (other.src_ip, other.dst_ip, other.src_port, other.dst_port, other.protocol)
-
+        return (
+            (self.src_ip, self.src_port, self.dst_ip, self.dst_port, self.protocol) ==
+            (other.src_ip, other.src_port, other.dst_ip, other.dst_port, other.protocol)
+            or
+            (self.src_ip, self.src_port, self.dst_ip, self.dst_port, self.protocol) ==
+            (other.dst_ip, other.dst_port, other.src_ip, other.src_port, other.protocol)
+        )
     def __ne__(self, other):
         return not self.__eq__(other)
 
     def __str__(self):
         return f"Packet: {self.src_ip}:{self.src_port} -> {self.dst_ip}:{self.dst_port} Protocol: {self.protocol}"
+
+    def print(self):
+        for packet in self.packets.copy():  # Copy to avoid modifying the list while iterating
+            print(packet.summary())
+
+    @staticmethod
+    def get_five_tuple(packet: scapy.Packet) -> tuple:
+        src_ip, dst_ip, src_port, dst_port, protocol = None, None, None, None, None
+        if IP in packet:
+            print("Added IP Packet")
+            src_ip = packet[IP].src
+            dst_ip = packet[IP].dst
+            protocol = packet[IP].proto
+        elif IPv6 in packet:
+            print("Added IPv6 Packet")
+            src_ip = packet[IPv6].src
+            dst_ip = packet[IPv6].dst
+            protocol = packet[IPv6].nh
+
+        if TCP in packet:
+            src_port = packet[TCP].sport
+            dst_port = packet[TCP].dport
+        elif UDP in packet:
+            src_port = packet[UDP].sport
+            dst_port = packet[UDP].dport
+        elif ICMP in packet:
+            protocol = packet[IP].proto
+        elif ARP in packet:
+            protocol = packet[Ether].type
+            src_ip = packet[ARP].psrc
+            dst_ip = packet[ARP].pdst
+            src_port = 0
+            dst_port = 0
+
+        if src_ip is not None and dst_ip is not None and protocol is not None:
+            return src_ip, dst_ip, src_port, dst_port, protocol
+        else:
+            packet.show()
+            raise ValueError("Packet does not contain necessary information")
