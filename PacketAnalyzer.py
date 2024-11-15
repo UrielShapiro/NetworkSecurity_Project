@@ -1,3 +1,5 @@
+from typing import Any
+
 import scapy.all as scapy
 from scapy.layers.dhcp import DHCP
 from scapy.layers.dns import DNS
@@ -12,11 +14,15 @@ class PacketAnalyzer:
         self.packets = []
         self.packets.append(packet)
         self.abnormalities = {}
+        self.total_data = len(packet)
 
         self.TCP = {
             "SYN": False,
             "SYN ACK": False,
             "ACK": False,
+            "SYN Sender": str,
+            "Syn-ACK Sender": str,
+            "ACK Sender": str
         }
         self.UDP = {
             "DNS": False,
@@ -84,6 +90,7 @@ class PacketAnalyzer:
 
     def update_packet(self, packet: scapy.Packet):
         self.packets.append(packet)
+        self.total_data += len(packet)
         self.analyze_packet(packet)
 
     def analyze_packet(self, packet: scapy.Packet):
@@ -92,7 +99,6 @@ class PacketAnalyzer:
             self.process_mac(packet)
 
         if IP in packet:
-            protocol = packet[IP].proto
             # Handle TCP
             if packet.haslayer(TCP):
                 self.process_tcp(packet)
@@ -116,7 +122,7 @@ class PacketAnalyzer:
         # Check anomalies first:
         try:
             # Check if all flags are set
-            if packet_flags & all_flags == all_flags:
+            if (packet_flags & all_flags) == all_flags:
                 self.TCP["SYN"] = False
                 self.TCP["SYN ACK"] = False
                 self.TCP["ACK"] = False
@@ -181,15 +187,25 @@ class PacketAnalyzer:
             self.TCP["ACK"] = False
 
         # Check for SYN flag (Initial SYN)
-        if (packet[TCP].flags & SYN and not packet[TCP].flags & ACK and not self.TCP["SYN ACK"]
-                and not self.TCP["SYN"] and not self.TCP["ACK"]):
+        if packet[TCP].flags & SYN and not packet[TCP].flags & ACK:
             self.TCP["SYN"] = True
+            self.TCP["SYN Sender"] = PacketAnalyzer.get_sender_ip(packet)
         # Check for SYN ACK flag (Initial SYN-ACK)
-        elif packet[TCP].flags & SYN and packet[TCP].flags & ACK and not self.TCP["SYN ACK"]:
+        elif packet[TCP].flags & SYN and packet[TCP].flags & ACK and not self.TCP["SYN ACK"] and self.TCP["SYN Sender"] is not None and self.TCP["SYN Sender"] != PacketAnalyzer.get_sender_ip(packet):
             self.TCP["SYN ACK"] = True
+            self.TCP["Syn-ACK Sender"] = PacketAnalyzer.get_sender_ip(packet)
         # Check for ACK flag (Not only initial ACK)
         elif packet[TCP].flags & ACK and self.TCP["SYN"] and self.TCP["SYN ACK"]:
             self.TCP["ACK"] = True
+            self.TCP["ACK Sender"] = PacketAnalyzer.get_sender_ip(packet)
+
+        if self.TCP["SYN"] and self.TCP["SYN ACK"] and self.TCP["ACK"]:
+            if self.TCP["SYN Sender"] != self.TCP["ACK Sender"]:
+                self.add_abnormality("TCP Three-Way Handshake Abnormality - SYN sender and ACK sender are not the same")
+            if self.TCP["Syn-ACK Sender"] == self.TCP["SYN Sender"]:
+                self.add_abnormality("TCP Three-Way Handshake Abnormality - SYN-ACK sender is the same as SYN sender")
+            if self.TCP["Syn-ACK Sender"] == self.TCP["ACK Sender"]:
+                self.add_abnormality("TCP Three-Way Handshake Abnormality - SYN-ACK sender is the same as ACK sender")
 
     def process_udp(self, packet):
         # Check for DNS
@@ -211,10 +227,12 @@ class PacketAnalyzer:
             pass
 
     def process_mac(self, packet: scapy.Packet):
-        if (self.src_mac != packet[Ether].src and self.src_mac != packet[Ether].dst) \
-                or (self.dst_mac != packet[Ether].src and self.dst_mac != packet[Ether].dst):
-            # raise MacAddressException("MAC address mismatch")
-            pass
+        try:
+            if (self.src_mac != packet[Ether].src and self.src_mac != packet[Ether].dst) \
+                    or (self.dst_mac != packet[Ether].src and self.dst_mac != packet[Ether].dst):
+                raise MacAddressException("MAC address mismatch")
+        except MacAddressException as e:
+            self.add_abnormality("MAC Address Abnormality " + e.message)
 
 
     def add_abnormality(self, anomaly: str):
@@ -222,10 +240,6 @@ class PacketAnalyzer:
             self.abnormalities[anomaly] = 1
         else:
             self.abnormalities[anomaly] += 1
-
-    def __reversed__(self):
-        self.src_ip, self.dst_ip = self.dst_ip, self.src_ip
-        self.src_port, self.dst_port = self.dst_port, self.src_port
 
     def dst_(self):
         return self.dst_ip, self.dst_port
@@ -255,6 +269,7 @@ class PacketAnalyzer:
     def print(self):
         for packet in self.packets.copy():  # Copy to avoid modifying the list while iterating
             print(packet.summary())
+
 
     @staticmethod
     def get_five_tuple(packet: scapy.Packet) -> tuple:
@@ -290,3 +305,12 @@ class PacketAnalyzer:
         else:
             packet.show()
             raise ValueError("Packet does not contain necessary information")
+
+    @staticmethod
+    def get_sender_ip(packet: scapy.Packet) -> Any | None:
+        if IP in packet:
+            return packet[IP].src
+        elif IPv6 in packet:
+            return packet[IPv6].src
+        else:
+            return None
