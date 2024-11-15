@@ -5,7 +5,6 @@ from threading import Condition, Thread
 from scapy.interfaces import ifaces
 
 import FlowAnalyzer
-import PacketAnalyzer
 import PacketSniffer
 
 # ANSI color codes for colored output
@@ -18,14 +17,13 @@ RESET = "\033[0m"  # Reset to default color
 
 class IDS:
     def __init__(self, sniff_flag: bool, sniff_interface: str = None, pcap_path: str = None):
-        self.packet_flow = {}
         self.snifferFlag = sniff_flag
         self.__resolvedIPs = {}
         self.__running = False
         self.__sniffing_thread = None
         self.__packet_analyzer_thread = None
-        self.packet_queue = queue.Queue()
-        self.cond = Condition()
+        self.packet_queue = queue.Queue()   # Queue to store packets
+        self.cond = Condition()             # Condition variable to synchronize threads
         self.reading_done = False
         self.analyzing_done = False
         self.flow_analyzer = FlowAnalyzer.FlowAnalyzer()
