@@ -47,7 +47,7 @@ class IDS:
             self.__sniffing_thread.start()
 
     def is_running(self):
-        return self.__running == True
+        return self.__running
 
     def stop(self):
         self.__running = False
@@ -55,6 +55,7 @@ class IDS:
             self.cond.notify_all()  # Ensure any waiting threads are notified
         self.__sniffing_thread.join()
         self.__packet_analyzer_thread.join()
+        self.flow_analyzer.print()
 
     def sniff_packets(self):
         while self.is_running():
@@ -69,9 +70,9 @@ class IDS:
                 self.packet_queue.put(p)
                 self.cond.notify()
 
-            with self.cond:
-                self.reading_done = True
-                self.cond.notify_all()  # Notify all waiting threads that reading is done
+        with self.cond:
+            self.reading_done = True
+            self.cond.notify_all()  # Notify all waiting threads that reading is done
 
     def analyze_packet(self):
         while self.is_running():
@@ -80,23 +81,24 @@ class IDS:
                     while self.packet_queue.empty() and not self.reading_done:
                         self.cond.wait()  # Wait for new packets or reading to complete
 
-                        if self.packet_queue.empty() and self.reading_done:
-                            break  # Break out of the loop if no more packets are available and reading is done
+                    if self.packet_queue.empty() and self.reading_done:
+                        break  # Break out if reading is done and queue is empty
 
-            packet = self.packet_queue.get()
+            try:
+                packet = self.packet_queue.get(timeout=1)  # Add timeout to avoid indefinite blocking
+            except queue.Empty:
+                continue  # Skip to the next iteration if the queue is empty
 
-            five_tuple = PacketAnalyzer.PacketAnalyzer(packet)
-            if five_tuple in self.packet_flow:
-                self.packet_flow[five_tuple].update_packet(packet)
-                break
+            # Process packet
+            if packet in self.flow_analyzer:
+                self.flow_analyzer.update_packet(packet)
             else:
-                self.packet_flow[five_tuple] = FlowAnalyzer.FlowAnalyzer(packet)
+                self.flow_analyzer.add_packet(packet)
 
-            if not self.snifferFlag:
-                with self.cond:
-                    self.analyzing_done = True
-                    self.cond.notify_all()  # Notify main thread that analysis is complete
-
+            # Notify the main thread that analysis is complete
+        with self.cond:
+            self.analyzing_done = True
+            self.cond.notify_all()
 
 def main(sniff_flag: bool, sniff_interface: str = None, pcap_path: str = None):
     ids = IDS(sniff_flag, sniff_interface, pcap_path)
@@ -109,11 +111,15 @@ def main(sniff_flag: bool, sniff_interface: str = None, pcap_path: str = None):
                 if ids.reading_done and ids.analyzing_done:
                     break
 
-        while True:
+        end = False # Flag to end the outer loop
+        while ids.snifferFlag:
             stop = input("Would you like to stop the IDS? (y/n): ")
             if stop.lower() == "y":
+                end = True
                 break
-        break
+        if end:
+            break
+
     ids.stop()
 
 
@@ -137,7 +143,7 @@ if __name__ == "__main__":
             interfaces_map[index] = interface_name
 
         # Prompt the user to select an interface by number
-        while True:
+        while True and sniffing:
             choice = int(input("Select the interface by number: "))
             if choice not in interfaces_map.keys():
                 print(
