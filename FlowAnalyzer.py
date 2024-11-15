@@ -1,13 +1,6 @@
-from typing import List, Dict
-
 import scapy.all as scapy
-from scapy.layers.dhcp import DHCP
-from scapy.layers.dns import DNS
-from scapy.layers.inet import IP, TCP, UDP
-from scapy.layers.l2 import Ether
 
 from PacketAnalyzer import PacketAnalyzer
-from PacketExceptions import TCPFlagsException, UDPPortException, MacAddressException
 
 
 class FlowAnalyzer:
