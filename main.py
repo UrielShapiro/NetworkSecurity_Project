@@ -4,8 +4,10 @@ from threading import Condition, Thread
 
 from scapy.interfaces import ifaces
 
+from DBQueryGenerator import *
 import FlowAnalyzer
 import PacketSniffer
+from SQL_Server import FlowAbnormalityDB
 
 # ANSI color codes for colored output
 RED = "\033[91m"
@@ -18,15 +20,15 @@ RESET = "\033[0m"  # Reset to default color
 class IDS:
     def __init__(self, sniff_flag: bool, sniff_interface: str = None, pcap_path: str = None):
         self.snifferFlag = sniff_flag
-        self.__resolvedIPs = {}
         self.__running = False
         self.__sniffing_thread = None
         self.__packet_analyzer_thread = None
-        self.packet_queue = queue.Queue()   # Queue to store packets
-        self.cond = Condition()             # Condition variable to synchronize threads
+        self.packet_queue = queue.Queue()  # Queue to store packets
+        self.cond = Condition()  # Condition variable to synchronize threads
         self.reading_done = False
         self.analyzing_done = False
         self.flow_analyzer = FlowAnalyzer.FlowAnalyzer()
+        self.db = FlowAbnormalityDB()
 
         if sniff_flag:
             self.interface = sniff_interface
@@ -53,7 +55,15 @@ class IDS:
             self.cond.notify_all()  # Ensure any waiting threads are notified
         self.__sniffing_thread.join()
         self.__packet_analyzer_thread.join()
-        self.flow_analyzer.print()
+        for five_tuple, abnormality in self.flow_analyzer.get_abnormalities():
+            src = five_tuple[0]
+            dst = five_tuple[1]
+            src_port = five_tuple[2]
+            dst_port = five_tuple[3]
+            protocol = five_tuple[4]
+            self.db.insert_abnormality(src, dst, src_port, dst_port, protocol, abnormality)
+        self.flow_analyzer.print()  # TODO: Remove from final code
+        DBQueryGenerator.DatabaseHandler(self.db)
 
     def sniff_packets(self):
         while self.is_running():
@@ -98,6 +108,10 @@ class IDS:
             self.analyzing_done = True
             self.cond.notify_all()
 
+    def __del__(self):
+        self.db.close()
+
+
 def main(sniff_flag: bool, sniff_interface: str = None, pcap_path: str = None):
     ids = IDS(sniff_flag, sniff_interface, pcap_path)
     ids.start()
@@ -109,7 +123,7 @@ def main(sniff_flag: bool, sniff_interface: str = None, pcap_path: str = None):
                 if ids.reading_done and ids.analyzing_done:
                     break
 
-        end = False # Flag to end the outer loop
+        end = False  # Flag to end the outer loop
         while ids.snifferFlag:
             stop = input("Would you like to stop the IDS? (y/n): ")
             if stop.lower() == "y":
