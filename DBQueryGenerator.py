@@ -13,8 +13,8 @@ RESET = "\033[0m"  # Reset to default color
 class DBQueryGenerator(ABC):
     @staticmethod
     def DatabaseHandler(db: FlowAbnormalityDB):
-        try:
-            while True:
+        while True:
+            try:
                 print("\nMenu:")
                 print("1. See total statistics")
                 print("2. Do your own query")
@@ -30,10 +30,10 @@ class DBQueryGenerator(ABC):
                     break
                 else:
                     print(f"\n{RED}Invalid choice!{RESET}")
-        except KeyboardInterrupt:
-            print("\nExiting...")
-        except ValueError:
-            print(f"\n{RED}Invalid choice!{RESET}")
+            except KeyboardInterrupt:
+                print("\nExiting...")
+            except ValueError:
+                print(f"\n{RED}Invalid choice!{RESET}")
 
     @staticmethod
     def process_statistics(db: FlowAbnormalityDB):
