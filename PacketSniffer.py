@@ -1,9 +1,12 @@
-from scapy.all import sniff, rdpcap, Packet
 import sys
+
+from scapy.all import sniff, rdpcap, Packet
+
 
 def sniff_packets(interface: str) -> Packet:
     packets = sniff(count=1, iface=interface)
     return packets[0]
+
 
 def read_pcap(path: str) -> Packet:
     try:
