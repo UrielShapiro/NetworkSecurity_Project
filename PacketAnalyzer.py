@@ -458,7 +458,7 @@ class PacketAnalyzer:
                 self.add_abnormality(anomaly)
 
         # Check for Transaction ID reuse
-        if bootp.xid in self.UDP["DHCP"]["TransactionID"]:
+        if bootp.xid in self.UDP["DHCP"]["ID"]:
             anomaly = FlowAbnormality(abnormality_type="DHCP Abnormality",
                                       description="Transaction ID is reused",
                                       level=AbnormalityType.TRANSACTION_VIOLATION)
@@ -517,7 +517,7 @@ class PacketAnalyzer:
             self.add_abnormality(anomaly)
 
     def add_abnormality(self, anomaly: FlowAbnormality):
-        if anomaly not in self.abnormalities:
+        if anomaly not in self.abnormalities.keys():
             self.abnormalities[anomaly] = 1
         else:
             self.abnormalities[anomaly] += 1
