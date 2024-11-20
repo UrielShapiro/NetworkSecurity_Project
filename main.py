@@ -1,12 +1,13 @@
 import queue
+import time
 from pathlib import Path
 from threading import Condition, Thread
 
 from scapy.interfaces import ifaces
 
-from DBQueryGenerator import *
 import FlowAnalyzer
 import PacketSniffer
+from DBQueryGenerator import *
 from SQL_Server import FlowAbnormalityDB
 
 # ANSI color codes for colored output
@@ -125,6 +126,7 @@ def main(sniff_flag: bool, sniff_interface: str = None, pcap_path: str = None):
 
         end = False  # Flag to end the outer loop
         while ids.snifferFlag:
+            print(f"\n{GREEN}Analyzing packets...{RESET}")
             stop = input("Would you like to stop the IDS? (y/n): ")
             if stop.lower() == "y":
                 end = True
@@ -136,11 +138,25 @@ def main(sniff_flag: bool, sniff_interface: str = None, pcap_path: str = None):
 
 
 if __name__ == "__main__":
+    print(f"{BLUE}Welcome to the Intrusion Detection System!{RESET}", end="\n\n")
 
-    print("Would you like to sniff packets or read from a pcap file?")
-    print("1. Sniff packets")
-    print("2. Read packets from a pcap file")
-    sniffing = int(input("Enter your choice as an integer: ")) == 1
+    sniffing = False
+    while True:
+        print(f"Would you like to {YELLOW}sniff packets{RESET} or read from a {YELLOW}pcap file{RESET}?")
+        print("1. Sniff packets")
+        print("2. Read packets from a pcap file")
+        answer = input("Enter your choice as an integer: ")
+        try:
+            answer = int(answer)
+        except ValueError:
+            print(f"{RED}Invalid choice!{RESET}")
+            continue
+        if not answer == 1 and not answer == 2:
+            print(f"{RED}Invalid choice!{RESET}")
+            continue
+        else:
+            sniffing = answer == 1
+            break
 
     if sniffing:
         '''
