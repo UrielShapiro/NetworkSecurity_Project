@@ -9,6 +9,7 @@ YELLOW = "\033[93m"
 BLUE = "\033[94m"
 RESET = "\033[0m"  # Reset to default color
 
+
 class DBQueryGenerator(ABC):
     @staticmethod
     def DatabaseHandler(db: FlowAbnormalityDB):
@@ -28,9 +29,11 @@ class DBQueryGenerator(ABC):
                     print(f"{RED}Exiting...{RESET}")
                     break
                 else:
-                    print("Invalid choice!")
+                    print(f"\n{RED}Invalid choice!{RESET}")
         except KeyboardInterrupt:
             print("\nExiting...")
+        except ValueError:
+            print(f"\n{RED}Invalid choice!{RESET}")
 
     @staticmethod
     def process_statistics(db: FlowAbnormalityDB):
@@ -57,7 +60,7 @@ class DBQueryGenerator(ABC):
         # Get user's choice
         choice = int(input("Select the source address (enter the number): "))
         if choice < 1 or choice > len(sources):
-            print("Invalid selection!")
+            print(f"{RED}Invalid selection!{RESET}")
             return
 
         selected_src = sources[choice - 1]
