@@ -1,20 +1,24 @@
 from typing import Any
 
 import scapy.all as scapy
-from scapy.layers.dhcp import DHCP
+from scapy.layers.dhcp import DHCP, BOOTP
 from scapy.layers.dns import DNS
 from scapy.layers.inet import IP, TCP, UDP, ICMP
 from scapy.layers.inet6 import IPv6, ICMPv6EchoRequest, ICMPv6EchoReply
 from scapy.layers.l2 import Ether, ARP
-from PacketExceptions import TCPFlagsException, UDPPortException, MacAddressException
+
+import FlowAbnormality
+from PacketExceptions import TCPFlagsException, MacAddressException
+
 
 class PacketAnalyzer:
     def __init__(self, packet):
-
         self.packets = []
         self.packets.append(packet)
         self.abnormalities = {}
         self.total_data = len(packet)
+        self.__resolvedIPs = []
+        self.__requestedDomains = []
 
         self.TCP = {
             "SYN": False,
@@ -25,9 +29,15 @@ class PacketAnalyzer:
             "ACK Sender": str
         }
         self.UDP = {
-            "DNS": False,
+            "DNS": {
+                "Query": None,  # Will store the IP address of the DNS query
+                "Response": None,  # Will store the IP address of the DNS response
+                "ID": []  # Will store the ID of the DNS queries
+            },
             "MDNS": False,
-            "DHCP": False,
+            "DHCP": {
+                "ID": []
+            },
         }
 
         self.src_mac = None
@@ -105,7 +115,6 @@ class PacketAnalyzer:
             elif packet.haslayer(UDP):
                 self.process_udp(packet)
 
-
     def process_tcp(self, packet):
 
         FIN = 0x01
@@ -178,7 +187,10 @@ class PacketAnalyzer:
                 raise TCPFlagsException("Only URG flag is set")
         except TCPFlagsException as e:
             print("TCP Flags Abnormality " + e.message)
-            self.add_abnormality("TCP Flags Abnormality " + e.message)
+            anomaly = FlowAbnormality.FlowAbnormality(abnormality_type="TCP Flags Abnormality",
+                                                      description=e.message,
+                                                      level=FlowAbnormality.AbnormalityType.ALERT)
+            self.add_abnormality(anomaly)
 
         # Check for RST flags
         if packet_flags & RST or (packet_flags & FIN and packet_flags & ACK):
@@ -191,7 +203,8 @@ class PacketAnalyzer:
             self.TCP["SYN"] = True
             self.TCP["SYN Sender"] = PacketAnalyzer.get_sender_ip(packet)
         # Check for SYN ACK flag (Initial SYN-ACK)
-        elif packet[TCP].flags & SYN and packet[TCP].flags & ACK and not self.TCP["SYN ACK"] and self.TCP["SYN Sender"] is not None and self.TCP["SYN Sender"] != PacketAnalyzer.get_sender_ip(packet):
+        elif packet[TCP].flags & SYN and packet[TCP].flags & ACK and not self.TCP["SYN ACK"] and self.TCP[
+            "SYN Sender"] is not None and self.TCP["SYN Sender"] != PacketAnalyzer.get_sender_ip(packet):
             self.TCP["SYN ACK"] = True
             self.TCP["Syn-ACK Sender"] = PacketAnalyzer.get_sender_ip(packet)
         # Check for ACK flag (Not only initial ACK)
@@ -201,30 +214,254 @@ class PacketAnalyzer:
 
         if self.TCP["SYN"] and self.TCP["SYN ACK"] and self.TCP["ACK"]:
             if self.TCP["SYN Sender"] != self.TCP["ACK Sender"]:
-                self.add_abnormality("TCP Three-Way Handshake Abnormality - SYN sender and ACK sender are not the same")
+                anomaly = FlowAbnormality.FlowAbnormality(abnormality_type="TCP Three-Way Handshake Abnormality",
+                                                          description="SYN sender and ACK sender are not the same",
+                                                          level=FlowAbnormality.AbnormalityType.WARNING)
+                self.add_abnormality(anomaly)
             if self.TCP["Syn-ACK Sender"] == self.TCP["SYN Sender"]:
-                self.add_abnormality("TCP Three-Way Handshake Abnormality - SYN-ACK sender is the same as SYN sender")
+                anomaly = FlowAbnormality.FlowAbnormality(abnormality_type="TCP Three-Way Handshake Abnormality",
+                                                          description="SYN-ACK sender is the same as SYN sender",
+                                                          level=FlowAbnormality.AbnormalityType.WARNING)
+                self.add_abnormality(anomaly)
             if self.TCP["Syn-ACK Sender"] == self.TCP["ACK Sender"]:
-                self.add_abnormality("TCP Three-Way Handshake Abnormality - SYN-ACK sender is the same as ACK sender")
+                anomaly = FlowAbnormality.FlowAbnormality(abnormality_type="TCP Three-Way Handshake Abnormality",
+                                                          description="SYN-ACK sender is the same as ACK sender",
+                                                          level=FlowAbnormality.AbnormalityType.WARNING)
+                self.add_abnormality(anomaly)
 
     def process_udp(self, packet):
         # Check for DNS
-
         if DNS in packet:
-            if packet[UDP].sport == 53 or packet[UDP].dport == 53:
-                self.UDP["DNS"] = True
-            elif (packet[UDP].sport == 5353 or packet[UDP].dport == 5353) and packet[IP].dst == "224.0.0.251":
+            if packet[UDP].sport == 5353 or packet[UDP].dport == 5353:
                 self.UDP["MDNS"] = True
-            else:
-                raise UDPPortException("DNS packet is not on the standard port 53")
+
+            self.process_dns(packet)
+
         # Check for DHCP
         elif DHCP in packet:
-            if (packet[UDP].sport == 67 and packet[UDP].dport == 68) or (packet[UDP].sport == 68 and packet[UDP].dport == 67):
-                self.UDP["DHCP"] = True
+            self.process_dhcp(packet)
+
+    def process_dns(self, packet: scapy.Packet):
+        dns = packet[DNS]  # Take the DNS layer of the packet
+
+        self.process_dns_header(packet)
+
+        if dns.qr == 0:  # Query packet
+            self.UDP["DNS"]["Query"] = PacketAnalyzer.get_sender_ip(packet)
+            domain_name = dns.qd.qname.decode("utf-8")
+            domain_suffix = domain_name.split(".")
+            if len(domain_suffix) >= 2:
+                domain_name = '.'.join(domain_suffix[-2:])  # Get the last two parts of the domain name
+            if domain_name not in self.__requestedDomains:  # Check if the domain name has been requested before (DNS Tunneling)
+                self.__requestedDomains.append(domain_name)
             else:
-                raise UDPPortException("DHCP packet is not on the standard port 67")
+                anomaly = FlowAbnormality.FlowAbnormality(abnormality_type="DNS Abnormality",
+                                                          description="DNS Tunneling suspected for domain: " + domain_name,
+                                                          level=FlowAbnormality.AbnormalityType.WARNING)
+                self.add_abnormality(anomaly)
+            if dns.id in self.UDP["DNS"]["ID"]:
+                anomaly = FlowAbnormality.FlowAbnormality(abnormality_type="DNS Abnormality",
+                                                          description="DNS packet ID is reused",
+                                                          level=FlowAbnormality.AbnormalityType.TRANSACTION_VIOLATION)
+                self.add_abnormality(anomaly)
+            else:
+                self.UDP["DNS"]["ID"].append(dns.id)
+
+        elif dns.qr == 1:  # Response packet
+            if not self.UDP["DNS"]["Query"]:  # Check if there was a query before the response
+                anomaly = FlowAbnormality.FlowAbnormality(abnormality_type="DNS Abnormality",
+                                                          description="DNS response without a query",
+                                                          level=FlowAbnormality.AbnormalityType.ALERT)
+                self.add_abnormality(anomaly)
+            self.UDP["DNS"]["Response"] = PacketAnalyzer.get_sender_ip(packet)
+            self.__resolvedIPs.append(dns.an.rdata)  # Add the resolved IP to the list of resolved IPs
+
+            # Check for a query response mismatch
+            if dns.id not in self.UDP["DNS"]["ID"]:
+                anomaly = FlowAbnormality.FlowAbnormality(abnormality_type="DNS Abnormality",
+                                                          description="DNS ID does not match any query",
+                                                          level=FlowAbnormality.AbnormalityType.TRANSACTION_VIOLATION)
+                self.add_abnormality(anomaly)
+
+            if self.UDP["MDNS"]:
+                if dns.aa != 1:
+                    anomaly = FlowAbnormality.FlowAbnormality(abnormality_type="DNS Abnormality",
+                                                              description="MDNS packet is not authoritative",
+                                                              level=FlowAbnormality.AbnormalityType.FLAGS_VIOLATION)
+                    self.add_abnormality(anomaly)
+
+        if self.UDP["MDNS"]:
+            ip = packet[IP].dst
+            if ip != "224.0.0.251" and ip != "FF02::FB":  # Check if the MDNS packet is not on the standard multicast address
+                anomaly = FlowAbnormality.FlowAbnormality(abnormality_type="DNS Abnormality",
+                                                          description="MDNS packet is not on the standard multicast address",
+                                                          level=FlowAbnormality.AbnormalityType.HEADER_VIOLATION)
+                self.add_abnormality(anomaly)
+
+        elif not (packet[UDP].sport == 53 or packet[UDP].dport == 53):
+            anomaly = FlowAbnormality.FlowAbnormality(abnormality_type="DNS Abnormality",
+                                                      description="DNS packet is not on the standard port 53",
+                                                      level=FlowAbnormality.AbnormalityType.PORT_VIOLATION)
+            self.add_abnormality(anomaly)
+
+        if packet[DNS].opcode != 0:
+            anomaly = FlowAbnormality.FlowAbnormality(abnormality_type="DNS Abnormality",
+                                                      description="DNS packet is not a standard query",
+                                                      level=FlowAbnormality.AbnormalityType.INFO)
+            self.add_abnormality(anomaly)
+
+            # Check for suspiciously high number of queries or answers
+            if dns.qdcount > 10:
+                anomaly = FlowAbnormality.FlowAbnormality(abnormality_type="DNS Abnormality",
+                                                          description="Suspicious number of questions",
+                                                          level=FlowAbnormality.AbnormalityType.WARNING)
+                self.add_abnormality(anomaly)
+            if dns.ancount > 20:
+                anomaly = FlowAbnormality.FlowAbnormality(abnormality_type="DNS Abnormality",
+                                                          description="Suspicious number of answers",
+                                                          level=FlowAbnormality.AbnormalityType.WARNING)
+                self.add_abnormality(anomaly)
+            if dns.nscount > 10:
+                anomaly = FlowAbnormality.FlowAbnormality(abnormality_type="DNS Abnormality",
+                                                          description="Suspicious number of authority records",
+                                                          level=FlowAbnormality.AbnormalityType.WARNING)
+                self.add_abnormality(anomaly)
+            if dns.arcount > 10:
+                anomaly = FlowAbnormality.FlowAbnormality(abnormality_type="DNS Abnormality",
+                                                          description="Suspicious number of additional records",
+                                                          level=FlowAbnormality.AbnormalityType.WARNING)
+                self.add_abnormality(anomaly)
+
+                # Check for DNS packet size abnormalities
+                if len(packet) > 512:
+                    anomaly = FlowAbnormality.FlowAbnormality(abnormality_type="DNS Abnormality",
+                                                              description="Packet size exceeds standard UDP DNS packet size (512 bytes)",
+                                                              level=FlowAbnormality.AbnormalityType.PAYLOAD_VIOLATION)
+                    self.add_abnormality(anomaly)
+
+    def process_dns_header(self, packet: scapy.Packet):
+        dns = packet[DNS]
+        # Check for abnormal header flags
+        if not dns.qr in [0, 1]:
+            anomaly = FlowAbnormality.FlowAbnormality(abnormality_type="DNS Abnormality",
+                                                      description="Invalid DNS QR flag",
+                                                      level=FlowAbnormality.AbnormalityType.HEADER_VIOLATION)
+            self.add_abnormality(anomaly)
+        if dns.opcode not in [0, 1, 2, 4, 5]:
+            anomaly = FlowAbnormality.FlowAbnormality(abnormality_type="DNS Abnormality",
+                                                      description="Unsupported DNS Opcode",
+                                                      level=FlowAbnormality.AbnormalityType.HEADER_VIOLATION)
+            self.add_abnormality(anomaly)
+        if dns.rcode not in range(0, 16):  # RCODE is a 4-bit field (0-15)
+            anomaly = FlowAbnormality.FlowAbnormality(abnormality_type="DNS Abnormality",
+                                                      description="Invalid DNS RCODE",
+                                                      level=FlowAbnormality.AbnormalityType.HEADER_VIOLATION)
+            self.add_abnormality(anomaly)
+
+        # Check for abnormal flags
+        if dns.aa not in [0, 1]:
+            anomaly = FlowAbnormality.FlowAbnormality(abnormality_type="DNS Abnormality",
+                                                      description="Invalid DNS AA flag",
+                                                      level=FlowAbnormality.AbnormalityType.FLAGS_VIOLATION)
+            self.add_abnormality(anomaly)
+        if dns.tc not in [0, 1]:
+            anomaly = FlowAbnormality.FlowAbnormality(abnormality_type="DNS Abnormality",
+                                                      description="Invalid DNS Truncation flag",
+                                                      level=FlowAbnormality.AbnormalityType.FLAGS_VIOLATION)
+            self.add_abnormality(anomaly)
+        if dns.rd not in [0, 1]:
+            anomaly = FlowAbnormality.FlowAbnormality(abnormality_type="DNS Abnormality",
+                                                      description="Invalid DNS Recursion Desired flag",
+                                                      level=FlowAbnormality.AbnormalityType.FLAGS_VIOLATION)
+            self.add_abnormality(anomaly)
+        if dns.ra not in [0, 1]:
+            anomaly = FlowAbnormality.FlowAbnormality(abnormality_type="DNS Abnormality",
+                                                      description="Invalid DNS Recursion Available flag",
+                                                      level=FlowAbnormality.AbnormalityType.FLAGS_VIOLATION)
+            self.add_abnormality(anomaly)
+
+    def process_dhcp(self, packet: scapy.Packet):
+        """
+        Function to analyze a DHCP packet using Scapy.
+        Assumes that `packet` is a Scapy packet.
+        """
+
+        bootp = packet[BOOTP]
+        dhcp = packet[DHCP]
+
+        # Check for correct ports
+        if not (packet[UDP].sport == 67 or packet[UDP].sport == 68 or packet[UDP].dport == 67 or packet[
+            UDP].dport == 68):
+            anomaly = FlowAbnormality.FlowAbnormality(abnormality_type="DHCP Abnormality",
+                                                      description="DHCP packet is not on standard ports 67 or 68",
+                                                      level=FlowAbnormality.AbnormalityType.PORT_VIOLATION)
+            self.add_abnormality(anomaly)
+
+        # Check for message type abnormality
+        message_type = None
+        for option in dhcp.options:
+            if option[0] == 'message-type':
+                message_type = option[1]
+                break  # Break out of the loop if message type is found
+        if message_type is None:
+            anomaly = FlowAbnormality.FlowAbnormality(abnormality_type="DHCP Abnormality",
+                                                      description="No DHCP message type found in packet",
+                                                      level=FlowAbnormality.AbnormalityType.HEADER_VIOLATION)
+            self.add_abnormality(anomaly)
         else:
-            pass
+            if message_type not in [1, 2, 3, 4, 5, 6, 7, 8]:
+                anomaly = FlowAbnormality.FlowAbnormality(abnormality_type="DHCP Abnormality",
+                                                          description=f"Unknown DHCP message type: {message_type}",
+                                                          level=FlowAbnormality.AbnormalityType.HEADER_VIOLATION)
+                self.add_abnormality(anomaly)
+
+        # Check for Transaction ID reuse
+        if bootp.xid in self.UDP["DHCP"]["TransactionID"]:
+            anomaly = FlowAbnormality.FlowAbnormality(abnormality_type="DHCP Abnormality",
+                                                      description="Transaction ID is reused",
+                                                      level=FlowAbnormality.AbnormalityType.TRANSACTION_VIOLATION)
+            self.add_abnormality(anomaly)
+        else:
+            self.UDP["DHCP"]["TransactionID"].append(bootp.xid)
+
+        # Check for invalid hardware address length
+        if bootp.hlen != 6:
+            anomaly = FlowAbnormality.FlowAbnormality(abnormality_type="DHCP Abnormality",
+                                                      description=f"Invalid hardware address length",
+                                                      level=FlowAbnormality.AbnormalityType.HEADER_VIOLATION)
+            self.add_abnormality(anomaly)
+
+        # Check for broadcast flag correctness
+        if bootp.flags not in [0x0000, 0x8000]:
+            anomaly = FlowAbnormality.FlowAbnormality(abnormality_type="DHCP Abnormality",
+                                                      description=f"Invalid broadcast flag value {bootp.flags}",
+                                                      level=FlowAbnormality.AbnormalityType.HEADER_VIOLATION)
+            self.add_abnormality(anomaly)
+
+        # Check for suspicious number of options
+        if len(dhcp.options) > 20:
+            anomaly = FlowAbnormality.FlowAbnormality(abnormality_type="DHCP Abnormality",
+                                                      description="Suspicious number of DHCP options",
+                                                      level=FlowAbnormality.AbnormalityType.WARNING)
+            self.add_abnormality(anomaly)
+
+        # Check for server identifier in Offer or Ack
+        if message_type in [2, 5]:  # DHCPOFFER or DHCPACK
+            server_id_found = any(option[0] == 'server_id' for option in dhcp.options)
+            if not server_id_found:
+                anomaly = FlowAbnormality.FlowAbnormality(abnormality_type="DHCP Abnormality",
+                                                          description="No server identifier found in DHCPOFFER or DHCPACK",
+                                                          level=FlowAbnormality.AbnormalityType.ALERT)
+                self.add_abnormality(anomaly)
+
+        # Check for requested IP in Request
+        if message_type == 3:  # DHCPREQUEST
+            requested_ip_found = any(option[0] == 'requested_addr' for option in dhcp.options)
+            if not requested_ip_found:
+                anomaly = FlowAbnormality.FlowAbnormality(abnormality_type="DHCP Abnormality",
+                                                          description="No requested IP address found in DHCPREQUEST",
+                                                          level=FlowAbnormality.AbnormalityType.ALERT)
+                self.add_abnormality("DHCP Abnormality: No requested IP address found in DHCPREQUEST")
 
     def process_mac(self, packet: scapy.Packet):
         try:
@@ -232,10 +469,12 @@ class PacketAnalyzer:
                     or (self.dst_mac != packet[Ether].src and self.dst_mac != packet[Ether].dst):
                 raise MacAddressException("MAC address mismatch")
         except MacAddressException as e:
-            self.add_abnormality("MAC Address Abnormality " + e.message)
+            anomaly = FlowAbnormality.FlowAbnormality(abnormality_type="MAC Address Abnormality",
+                                                      description=e.message,
+                                                      level=FlowAbnormality.AbnormalityType.ALERT)
+            self.add_abnormality(anomaly)
 
-
-    def add_abnormality(self, anomaly: str):
+    def add_abnormality(self, anomaly: FlowAbnormality):
         if anomaly not in self.abnormalities:
             self.abnormalities[anomaly] = 1
         else:
@@ -254,12 +493,13 @@ class PacketAnalyzer:
         if not isinstance(other, PacketAnalyzer):
             return False
         return (
-            (self.src_ip, self.src_port, self.dst_ip, self.dst_port, self.protocol) ==
-            (other.src_ip, other.src_port, other.dst_ip, other.dst_port, other.protocol)
-            or
-            (self.src_ip, self.src_port, self.dst_ip, self.dst_port, self.protocol) ==
-            (other.dst_ip, other.dst_port, other.src_ip, other.src_port, other.protocol)
+                (self.src_ip, self.src_port, self.dst_ip, self.dst_port, self.protocol) ==
+                (other.src_ip, other.src_port, other.dst_ip, other.dst_port, other.protocol)
+                or
+                (self.src_ip, self.src_port, self.dst_ip, self.dst_port, self.protocol) ==
+                (other.dst_ip, other.dst_port, other.src_ip, other.src_port, other.protocol)
         )
+
     def __ne__(self, other):
         return not self.__eq__(other)
 
@@ -267,9 +507,14 @@ class PacketAnalyzer:
         return f"Packet: {self.src_ip}:{self.src_port} -> {self.dst_ip}:{self.dst_port} Protocol: {self.protocol}"
 
     def print(self):
-        for packet in self.packets.copy():  # Copy to avoid modifying the list while iterating
-            print(packet.summary())
+        for key, value in self.abnormalities.items():
+            print(f"Abnormality: {key} - Occurrences: {value}")
+        # for packet in self.packets.copy():  # Copy to avoid modifying the list while iterating
+        #     print(packet.summary())
 
+    def get_abnormalities(self):
+        for abnormality in self.abnormalities.keys():
+            yield abnormality
 
     @staticmethod
     def get_five_tuple(packet: scapy.Packet) -> tuple:
@@ -313,4 +558,4 @@ class PacketAnalyzer:
         elif IPv6 in packet:
             return packet[IPv6].src
         else:
-            return None
+            raise ValueError("Packet does not contain IP information")
