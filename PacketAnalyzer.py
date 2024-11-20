@@ -464,7 +464,7 @@ class PacketAnalyzer:
                                       level=AbnormalityType.TRANSACTION_VIOLATION)
             self.add_abnormality(anomaly)
         else:
-            self.UDP["DHCP"]["TransactionID"].append(bootp.xid)
+            self.UDP["DHCP"]["ID"].append(bootp.xid)
 
         # Check for invalid hardware address length
         if bootp.hlen != 6:
