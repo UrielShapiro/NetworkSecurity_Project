@@ -18,26 +18,22 @@ class FlowAnalyzer:
     except FileNotFoundError:
         os.mkdir("logs")
 
-
     logging.basicConfig(
-    level=logging.DEBUG,  # Set the logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",  # Format for log messages
-    handlers=[
-        file_handler  # Logs to a file
-    ]
+        level=logging.DEBUG,  # Set the logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",  # Format for log messages
+        handlers=[
+            file_handler  # Logs to a file
+        ]
     )
-
 
     def __init__(self):
         self.logger = logging.getLogger(__name__)
         self.__flow_analysis = {}
 
-
     def __contains__(self, packet: scapy.Packet) -> bool:
         src_ip, dst_ip, src_port, dst_port, protocol = PacketAnalyzer.get_five_tuple(packet)
         return (src_ip, dst_ip, src_port, dst_port, protocol) in self.__flow_analysis.keys() or \
             (dst_ip, src_ip, dst_port, src_port, protocol) in self.__flow_analysis.keys()
-
 
     def update_packet(self, packet: scapy.Packet):
         self.logger.info("Updating flow with packet: " + packet.summary())
@@ -51,18 +47,15 @@ class FlowAnalyzer:
         else:
             self.__flow_analysis.get((dst_ip, src_ip, dst_port, src_port, protocol)).update_packet(packet)
 
-
     def add_packet(self, packet: scapy.Packet):
         self.logger.info("Adding packet: " + packet.summary())
         self.__flow_analysis[PacketAnalyzer.get_five_tuple(packet)] = PacketAnalyzer(packet)
-
 
     def get_abnormalities(self):
         for five_tuple in self.__flow_analysis.keys():
             packet_analyzer = self.__flow_analysis.get(five_tuple)
             for abnormality in packet_analyzer.get_abnormalities():
                 yield five_tuple, abnormality
-
 
     def print(self):
         total_number_of_packets = 0
