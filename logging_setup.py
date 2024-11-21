@@ -1,5 +1,5 @@
-import os
 import logging
+import os
 from logging.handlers import RotatingFileHandler
 from os import mkdir
 
@@ -19,8 +19,10 @@ logging.basicConfig(
     handlers=[file_handler]
 )
 
+
 def get_logger(name):
     return logging.getLogger(name)
+
 
 def mkdir(directory):
     if not os.path.exists(directory):
