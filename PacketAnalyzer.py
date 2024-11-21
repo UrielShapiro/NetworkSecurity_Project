@@ -12,6 +12,7 @@ from scapy.layers.inet6 import IPv6, ICMPv6EchoRequest, ICMPv6EchoReply, ICMPv6U
     ICMPv6TimeExceeded
 from scapy.layers.l2 import Ether, ARP
 from scapy.layers.ssh import SSH
+from scapy.packet import Raw
 
 import FlowAbnormality
 import logging_setup
@@ -42,13 +43,19 @@ class PacketAnalyzer:
             "Syn-ACK Sender": str,
             "ACK Sender": str,
             "SYN Packets": defaultdict(list),  # Dictionary to store SYN packets as a list of timestamps
-            "RST Packets": defaultdict(list)  # Dictionary to store RST packets as a list of timestamps
+            "RST Packets": defaultdict(list),  # Dictionary to store RST packets as a list of timestamps
+            "FTP": defaultdict(list),  # Dictionary to store FTP packets as a list of timestamps
+            "SMB Authentication": defaultdict(list), # Dictionary to store SMB authentication packets as a list of timestamps
+            "IMAP Authentication": defaultdict(list),  # Dictionary to store IMAP authentication packets as a list of timestamps
+            "IMAP DoS": defaultdict(list),  # Dictionary to store IMAP DoS packets as a list of timestamps
+            "POP3 Authentication": defaultdict(list),  # Dictionary to store POP3 authentication packets as a list of timestamps
+            "POP3 Data Exfiltration": defaultdict(list)  # Dictionary to store POP3 DoS packets as a list of timestamps
         }
         self.UDP = {
             "DNS": {
                 "Query": None,  # Will store the IP address of the DNS query
                 "Response": None,  # Will store the IP address of the DNS response
-                "ID": [],  # Will store the ID of the DNS queries
+                "ID": {},  # Will store the ID of the DNS queries and False to represent that the response has not been received
                 "Suspected Tunneling": defaultdict(list) # Dictionary to store suspected DNS tunneling packets as a list of timestamps
             },
             "MDNS": False,
@@ -264,8 +271,86 @@ class PacketAnalyzer:
         elif HTTP in packet:  # Check for HTTP
             self.process_http(packet)
 
+        tcp_layer = packet[TCP]
+        if tcp_layer.dport == 21 or tcp_layer.sport == 21 or tcp_layer.dport == 20 or tcp_layer.sport == 20:
+            self.process_ftp(packet)
+
+        if packet[TCP].dport == 445 or packet[TCP].sport == 445:  # SMB port (default 445)
+            self.process_smb(packet)
+
+        if packet[TCP].dport == 143 or packet[TCP].sport == 143:  # Check for IMAP port (default 143)
+            self.process_imap(packet)
+
+        if packet[TCP].dport == 110 or packet[TCP].sport == 110:  # Check for POP3 port (default 110)
+            self.process_pop3(packet)
+
+
+    def process_pop3(self, packet: scapy.Packet):
+        if packet.haslayer(Raw):
+            data = packet[Raw].load.decode('utf-8', errors='ignore')  # Get the raw payload as text
+            # Detect authentication failure (repeated incorrect USER/PASS commands)
+            if "USER" in data and "PASS" in data:
+                if "incorrect" in data.lower():  # Looking for "incorrect" in the response, which usually indicates failure
+                    self.check_times(self.TCP["POP3 Authentication"], PacketAnalyzer.get_sender_ip(packet),
+                                     timedelta(seconds=5), 20,
+                                     anomaly_type="POP3 Abnormality", description="Suspected brute force/scanning",
+                                     level=AbnormalityType.WARNING)
+            if "RETR" in data:
+                self.check_times(self.TCP["POP3 Data Exfiltration"], PacketAnalyzer.get_sender_ip(packet),
+                                 timedelta(seconds=5), 30,
+                                 anomaly_type="POP3 Abnormality", description="Suspected command flooding/Data Exfiltration",
+                                 level=AbnormalityType.WARNING)
+
+    def process_imap(self, packet: scapy.Packet):
+        # Check for IMAP commands
+        if packet.haslayer(Raw):
+            data = packet[Raw].load.decode('utf-8', errors='ignore')  # Get the raw payload as text
+            if "LOGIN" in data:
+                if "NO" in data.upper():  # Check for failed login response (usually "NO" in IMAP)
+                    self.check_times(self.TCP["IMAP Authentication"], PacketAnalyzer.get_sender_ip(packet),
+                                     timedelta(seconds=5), 20,
+                                     anomaly_type="IMAP Abnormality", description="Suspected brute force",
+                                     level=AbnormalityType.WARNING)
+
+            # Detect command flooding: Multiple rapid commands
+            if "SELECT" in data or "FETCH" in data or "LOGIN" in data:
+                self.check_times(self.TCP["IMAP DoS"], PacketAnalyzer.get_sender_ip(packet),
+                                 timedelta(seconds=5), 30, anomaly_type="IMAP Abnormality",
+                                 description="Suspected command flooding", level=AbnormalityType.WARNING)
+
+    def process_smb(self, packet: scapy.Packet):
+        if packet.haslayer(Raw):
+            data = packet[Raw].load
+
+            if b"SMB_COM_SESSION_SETUP" in data:
+                if b"STATUS_ACCESS_DENIED" in data.upper():  # Common failure status
+                    self.check_times(self.TCP["SMB Authentication"], PacketAnalyzer.get_sender_ip(packet),
+                                     timedelta(seconds=5), 20, anomaly_type="SMB Abnormality",
+                                     description="Suspected brute force", level=AbnormalityType.WARNING)
+
+            # Detect suspicious access to administrative shares (e.g., C$, ADMIN$)
+            suspicious_shares = ["C$", "ADMIN$", "IPC$", "ADMIN"]
+            if any(share in data.decode(errors="ignore") for share in suspicious_shares):
+                anomaly = FlowAbnormality(
+                    abnormality_type="SMB Abnormality",
+                    description=f"Suspicious access to share detected: {data.decode(errors='ignore')}",
+                    level=AbnormalityType.ALERT)
+                self.add_abnormality(anomaly)
+
+    def process_ftp(self, packet: scapy.Packet):
+        # Check for brute force attack
+        self.logger.info("Processing FTP packet")
+        TIME_WINDOW = timedelta(seconds=5)
+        ATTEMPTS = 60
+        self.check_times(self.TCP["FTP"], PacketAnalyzer.get_sender_ip(packet), TIME_WINDOW, ATTEMPTS,
+                         anomaly_type="FTP Abnormality", description="Brute force attack detected",
+                         level=AbnormalityType.ALERT)
+
+
     def process_ssh(self, packet: scapy.Packet):
         # TODO: Test functionality
+        self.logger.info("Processing SSH packet")
+
         RST = 0x04
         PSH = 0x08
         ACK = 0x10
@@ -321,8 +406,10 @@ class PacketAnalyzer:
     def process_dns(self, packet: scapy.Packet):
 
         TIME_WINDOW = timedelta(seconds=60)
+        NARROW_TIME_WINDOW = timedelta(seconds=10)
         DNS_REQUEST_THRESHOLD = 50
         MAX_QUERY_LENGTH = 100
+        DNS_TUNNELING_THRESHOLD = 10
 
         dns = packet[DNS]  # Take the DNS layer of the packet
 
@@ -340,18 +427,18 @@ class PacketAnalyzer:
             if simplified_domain not in self.__requestedDomains:  # Check if the domain name has been requested before (DNS Tunneling)
                 self.__requestedDomains.append(simplified_domain)
             else:
-                anomaly = FlowAbnormality(abnormality_type="DNS Abnormality",
-                                          description="DNS Tunneling suspected for domain: " + domain_name,
-                                          level=AbnormalityType.WARNING)
-                self.add_abnormality(anomaly)
+                self.check_times(self.UDP["DNS"]["Suspected Tunneling"], PacketAnalyzer.get_sender_ip(packet),
+                                 NARROW_TIME_WINDOW, DNS_TUNNELING_THRESHOLD, anomaly_type="DNS Abnormality",
+                                 description="Potential DNS tunneling detected", level=AbnormalityType.WARNING)
 
-            if dns.id in self.UDP["DNS"]["ID"]:
+            # Check for DNS packet ID reuse (transaction ID)
+            if dns.id in self.UDP["DNS"]["ID"].keys():
                 anomaly = FlowAbnormality(abnormality_type="DNS Abnormality",
                                           description="DNS packet ID is reused",
                                           level=AbnormalityType.TRANSACTION_VIOLATION)
                 self.add_abnormality(anomaly)
             else:
-                self.UDP["DNS"]["ID"].append(dns.id)
+                self.UDP["DNS"]["ID"][dns.id] = False
 
             src_ip = PacketAnalyzer.get_sender_ip(packet)
             self.check_times(self.UDP["DNS"]["Suspected Tunneling"], src_ip, TIME_WINDOW, DNS_REQUEST_THRESHOLD,
@@ -389,12 +476,34 @@ class PacketAnalyzer:
                                           level=AbnormalityType.ALERT)
                 self.add_abnormality(anomaly)
             self.UDP["DNS"]["Response"] = PacketAnalyzer.get_sender_ip(packet)
-            self.__resolvedIPs.append(dns.an.rdata)  # Add the resolved IP to the list of resolved IPs
+
+            # Check if the query and response are from the same IP
+            if self.UDP["DNS"]["Query"] == self.UDP["DNS"]["Response"]:
+                anomaly = FlowAbnormality(abnormality_type="DNS Abnormality",
+                                          description="DNS query and response are from the same IP",
+                                          level=AbnormalityType.ALERT)
+                self.add_abnormality(anomaly)
+
+
+            # Add the resolved IP to the list of resolved IPs
+            for address in dns.an:
+                self.__resolvedIPs.append(address)
+            for address in dns.ns:
+                self.__resolvedIPs.append(address)
+            for address in dns.ar:
+                self.__resolvedIPs.append(address)
 
             # Check for a query response mismatch
-            if dns.id not in self.UDP["DNS"]["ID"]:
+            if dns.id not in self.UDP["DNS"]["ID"].keys():
                 anomaly = FlowAbnormality(abnormality_type="DNS Abnormality",
                                           description="DNS ID does not match any query",
+                                          level=AbnormalityType.TRANSACTION_VIOLATION)
+                self.add_abnormality(anomaly)
+            elif dns.id in self.UDP["DNS"]["ID"].keys() and not self.UDP["DNS"]["ID"][dns.id]:
+                self.UDP["DNS"]["ID"][dns.id] = True
+            elif dns.id in self.UDP["DNS"]["ID"].keys() and self.UDP["DNS"]["ID"][dns.id]:
+                anomaly = FlowAbnormality(abnormality_type="DNS Abnormality",
+                                          description="DNS ID is reused",
                                           level=AbnormalityType.TRANSACTION_VIOLATION)
                 self.add_abnormality(anomaly)
 
@@ -583,6 +692,13 @@ class PacketAnalyzer:
 
 
     def process_http(self, packet: scapy.Packet):
+        # Check if the IP is in the resolved IPs list
+        if packet[IP].dst not in self.__resolvedIPs:
+            anomaly = FlowAbnormality(abnormality_type="HTTP Abnormality",
+                                      description="Packet IP address is not in the resolved IPs list",
+                                      level=AbnormalityType.WARNING)
+            self.add_abnormality(anomaly)
+
         if packet[TCP].sport != 80 and packet[TCP].dport != 80:
             anomaly = FlowAbnormality(abnormality_type="HTTP Abnormality",
                                       description="HTTP packet is not on standard port 80",
