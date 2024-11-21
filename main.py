@@ -1,4 +1,7 @@
+import logging
+import os
 import queue
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from threading import Condition, Thread
 
@@ -6,6 +9,7 @@ from scapy.interfaces import ifaces
 
 import FlowAnalyzer
 import PacketSniffer
+import logging_setup
 from DBQueryGenerator import *
 from FlowAnalyzer import FlowAnalyzer
 from SQL_Server import FlowAbnormalityDB
@@ -30,13 +34,19 @@ class IDS:
         self.analyzing_done = False
         self.flow_analyzer = FlowAnalyzer()
         self.db = FlowAbnormalityDB()
+        self.logger = self.setup_logger()
 
         if sniff_flag:
             self.interface = sniff_interface
+            self.logger.info(f"Initializing IDS with interface: {sniff_interface}")
         else:
             self.path = pcap_path
+            self.logger.info(f"Initializing IDS with pcap file: {pcap_path}")
+        self.logger.info("Initializing IDS")
+
 
     def start(self):
+        self.logger.info("Starting IDS")
         self.__running = True
         self.__packet_analyzer_thread = Thread(target=self.analyze_packet)
         self.__packet_analyzer_thread.start()
@@ -46,16 +56,20 @@ class IDS:
         else:
             self.__sniffing_thread = Thread(target=self.read_pcap)
             self.__sniffing_thread.start()
+        self.logger.info("All IDS threads started")
 
     def is_running(self):
         return self.__running
 
     def stop(self):
+        self.logger.info("Stopping IDS")
         self.__running = False
         with self.cond:
             self.cond.notify_all()  # Ensure any waiting threads are notified
+            self.logger.info("Notified all waiting threads")
         self.__sniffing_thread.join()
         self.__packet_analyzer_thread.join()
+        self.logger.info("All IDS threads stopped")
         for five_tuple, abnormality in self.flow_analyzer.get_abnormalities():
             src = five_tuple[0]
             dst = five_tuple[1]
@@ -64,8 +78,11 @@ class IDS:
             protocol = five_tuple[4]
             self.db.insert_abnormality(src=src, dst=dst, src_port=src_port, dst_port=dst_port,
                                        protocol=protocol, abnormality=abnormality)
+        self.logger.info("Inserted all abnormalities into the database")
         self.flow_analyzer.print()  # TODO: Remove from final code
+        self.logger.info("User is now prompted using the database_handler method")
         DBQueryGenerator.database_handler(self.db)
+        self.logger.info("Database handler completed, IDS stopped")
 
     def sniff_packets(self):
         while self.is_running():
@@ -73,16 +90,21 @@ class IDS:
             with self.cond:
                 self.packet_queue.put(packet)
                 self.cond.notify()
+                self.logger.debug(f"Packet added to the queue: {packet.summary()}, waking up the analyzer")
+                self.logger.debug(f"Packet queue size: {self.packet_queue.qsize()}")
 
     def read_pcap(self):
         for p in PacketSniffer.read_pcap(self.path):
             with self.cond:
                 self.packet_queue.put(p)
                 self.cond.notify()
+                self.logger.debug(f"Packet added to the queue: {p.summary()}, waking up the analyzer")
+                self.logger.debug(f"Packet queue size: {self.packet_queue.qsize()}")
 
         with self.cond:
             self.reading_done = True
             self.cond.notify_all()  # Notify all waiting threads that reading is done
+            self.logger.info("Reading from pcap file is done")
 
     def analyze_packet(self):
         while self.is_running():
@@ -97,6 +119,7 @@ class IDS:
             try:
                 packet = self.packet_queue.get(timeout=1)  # Add timeout to avoid indefinite blocking
             except queue.Empty:
+                self.logger.debug("Packet queue is empty")
                 continue  # Skip to the next iteration if the queue is empty
 
             # Process packet
@@ -109,9 +132,34 @@ class IDS:
         with self.cond:
             self.analyzing_done = True
             self.cond.notify_all()
+            self.logger.info("Analyzing packets is done")
 
     def __del__(self):
         self.db.close()
+        self.logger.info("Closed the database connection")
+
+    def setup_logger(self):
+        """Sets up a logger for the class."""
+        self.logger = logging.getLogger(self.__class__.__name__)
+        self.logger.setLevel(logging.DEBUG)  # Set the logging level
+
+        # Ensure the logs directory exists
+        log_dir = "./logs"
+        logging_setup.mkdir(log_dir)
+
+        # Create a rotating file handler
+        log_file = os.path.join(log_dir, "IDS.log")
+        file_handler = RotatingFileHandler(
+            log_file, maxBytes=5 * 1024 * 1024, backupCount=5
+        )
+        formatter = logging.Formatter(
+            "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+        )
+        file_handler.setFormatter(formatter)
+
+        # Add the handler to the logger
+        self.logger.addHandler(file_handler)
+        return self.logger
 
 
 def main(sniff_flag: bool, sniff_interface: str = None, pcap_path: str = None):
