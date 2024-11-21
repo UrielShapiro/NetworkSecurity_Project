@@ -2,14 +2,14 @@ from enum import Enum
 
 
 class AbnormalityType(Enum):
-    INFO = 1
-    WARNING = 2
-    FLAGS_VIOLATION = 3
-    HEADER_VIOLATION = 4
-    PAYLOAD_VIOLATION = 5
-    ALERT = 6
-    PORT_VIOLATION = 7
-    TRANSACTION_VIOLATION = 8
+    INFO = "INFO"
+    WARNING = "WARNING"
+    FLAGS_VIOLATION = "FLAGS_VIOLATION"
+    HEADER_VIOLATION = "HEADER_VIOLATION"
+    PAYLOAD_VIOLATION = "PAYLOAD_VIOLATION"
+    ALERT = "ALERT"
+    PORT_VIOLATION = "PORT_VIOLATION"
+    TRANSACTION_VIOLATION = "TRANSACTION_VIOLATION"
 
     @property
     def __str__(self):
@@ -32,6 +32,9 @@ class FlowAbnormality:
         self.abnormality_type = abnormality_type
         self.description = description
         self.level = level
+
+    def get_level(self):
+        return self.level.name
 
     def __str__(self):
         return f"{self.abnormality_type}: {self.description}"
