@@ -1,5 +1,4 @@
 import queue
-import time
 from pathlib import Path
 from threading import Condition, Thread
 
@@ -8,6 +7,7 @@ from scapy.interfaces import ifaces
 import FlowAnalyzer
 import PacketSniffer
 from DBQueryGenerator import *
+from FlowAnalyzer import FlowAnalyzer
 from SQL_Server import FlowAbnormalityDB
 
 # ANSI color codes for colored output
@@ -28,7 +28,7 @@ class IDS:
         self.cond = Condition()  # Condition variable to synchronize threads
         self.reading_done = False
         self.analyzing_done = False
-        self.flow_analyzer = FlowAnalyzer.FlowAnalyzer()
+        self.flow_analyzer = FlowAnalyzer()
         self.db = FlowAbnormalityDB()
 
         if sniff_flag:
@@ -62,9 +62,10 @@ class IDS:
             src_port = five_tuple[2]
             dst_port = five_tuple[3]
             protocol = five_tuple[4]
-            self.db.insert_abnormality(src, dst, src_port, dst_port, protocol, abnormality)
+            self.db.insert_abnormality(src=src, dst=dst, src_port=src_port, dst_port=dst_port,
+                                       protocol=protocol, abnormality=abnormality)
         self.flow_analyzer.print()  # TODO: Remove from final code
-        DBQueryGenerator.DatabaseHandler(self.db)
+        DBQueryGenerator.database_handler(self.db)
 
     def sniff_packets(self):
         while self.is_running():
@@ -88,7 +89,7 @@ class IDS:
             if not self.snifferFlag:
                 with self.cond:
                     while self.packet_queue.empty() and not self.reading_done:
-                        self.cond.wait()  # Wait for new packets or reading to complete
+                        self.cond.wait()  # Wait for new num_of_packets or reading to complete
 
                     if self.packet_queue.empty() and self.reading_done:
                         break  # Break out if reading is done and queue is empty
