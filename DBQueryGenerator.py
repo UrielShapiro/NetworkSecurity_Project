@@ -12,7 +12,7 @@ RESET = "\033[0m"  # Reset to default color
 
 class DBQueryGenerator(ABC):
     @staticmethod
-    def DatabaseHandler(db: FlowAbnormalityDB):
+    def database_handler(db: FlowAbnormalityDB):
         while True:
             try:
                 print("\nMenu:")
