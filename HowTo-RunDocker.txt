@@ -1,0 +1,27 @@
+How to run Python venv:
+Be on the project dir.
+Run the following commands on the terminal:
+1. python3 -m venv <venv name>
+2. source <venv name>/bin/activate
+
+You are now running in the virtual enviroment
+when you want to exit the venv. write the following command in the terminal:
+5. deactivate
+
+How to run Docker:
+Have a terminal on the main project (not inside a sub folder)
+Make sure you have a docker engine running in the background (like Docker Desktop)
+
+1. Build:
+docker build -t ids:<tag> .
+
+2. Run Image
+Have 2 terminals, on both run the following command:
+docker run -it --rm ids:test
+
+3. Run project
+On the first terminal run:
+python3 main.py
+
+And on the second terminal run:
+tcpreplay -i eth0 <path to pcap file>
