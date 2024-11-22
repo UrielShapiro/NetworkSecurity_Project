@@ -4,7 +4,7 @@ Run the following commands on the terminal:
 1. python3 -m venv <venv name>
 2. source <venv name>/bin/activate
 
-You are now running in the virtual enviroment
+You are now running in the virtual environment
 when you want to exit the venv. write the following command in the terminal:
 5. deactivate
 
