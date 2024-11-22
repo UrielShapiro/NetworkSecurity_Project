@@ -1,24 +1,31 @@
-FROM mcr.microsoft.com/windows/servercore:ltsc2022
+# Use an Ubuntu base image
+FROM ubuntu:22.04
 
-# Install Python and TCP Replay
-RUN powershell -Command \
-    Invoke-WebRequest -Uri https://www.python.org/ftp/python/3.12.0/python-3.12.0.exe -OutFile python-installer.exe; \
-    Start-Process python-installer.exe -ArgumentList '/quiet', 'InstallAllUsers=1', 'PrependPath=1' -NoNewWindow -Wait; \
-    Remove-Item -Force python-installer.exe
+# Set non-interactive mode for APT to avoid prompts during installation
+ENV DEBIAN_FRONTEND=noninteractive
 
-# Install TCP Replay (if necessary, or use an alternative method for Windows)
-RUN powershell -Command \
-    Invoke-WebRequest -Uri https://github.com/alonbl/tcpreplay/releases/download/v4.4.0/tcpreplay-4.4.0-win64.zip -OutFile tcpreplay.zip; \
-    Expand-Archive tcpreplay.zip -DestinationPath C:\tcpreplay; \
-    Remove-Item -Force tcpreplay.zip
+# Update the package list and install dependencies
+RUN apt-get update && apt-get install -y \
+    python3 \
+    python3-pip \
+    python3-dev \
+    build-essential \
+    libffi-dev \
+    libssl-dev \
+    net-tools \
+    iproute2 \
+    tcpreplay \
+    pip \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# Set up the working directory and copy your application
+# Set up the working directory
 WORKDIR /app
+
+# Copy your application files to the container
 COPY . /app
 
-# Install Python dependencies
-RUN python -m pip install --upgrade pip
-RUN pip install -r requirements.txt
+# Install Python dependencies from requirements.txt
+RUN pip3 install -r requirements.txt
 
-# Run your program
-CMD ["python", "your_program.py"]
+# Set the default command to run your Python program
+CMD ["/bin/bash"]
