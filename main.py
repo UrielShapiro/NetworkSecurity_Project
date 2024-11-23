@@ -70,7 +70,8 @@ class IDS:
         self.__sniffing_thread.join()
         self.__packet_analyzer_thread.join()
         self.logger.info("All IDS threads stopped")
-        for five_tuple, abnormality in self.flow_analyzer.get_abnormalities():
+        for five_tuple, abnormality in self.flow_analyzer.get_abnormalities():  # Adding the abnormalities only after
+            # the analysis is done so that we won't traverse an updating dictionary
             src = five_tuple[0]
             dst = five_tuple[1]
             src_port = five_tuple[2]
