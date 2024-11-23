@@ -13,7 +13,7 @@ Have a terminal on the main project (not inside a sub folder)
 Make sure you have a docker engine running in the background (like Docker Desktop)
 
 1. Build:
-docker build -t ids:<tag> .
+docker build -t ids:test .
 
 2. Run Image
 Have 2 terminals, on both run the following command:
@@ -25,3 +25,15 @@ python3 main.py
 
 And on the second terminal run:
 tcpreplay -i eth0 <path to pcap file>
+
+
+How to run docker-compose:
+Open terminal on the project directory and run the following command:
+docker compose up -d
+
+Then open 2 terminals, on each run:
+docker docker exec -it <container name> bash
+
+when done, on the main terminal run:
+docker compose down
+
