@@ -108,6 +108,14 @@ class FlowAbnormalityDB:
         # Query to get distinct source addresses
         self.cursor.execute("SELECT DISTINCT src FROM flow_abnormalities")
         results = self.cursor.fetchall()
+        self.logger.info(f"Retrieved all distinct sources: {results}")
+        return [row[0] for row in results]
+
+    def get_all_abnormality_types(self):
+        # Query to get all distinct abnormality types
+        self.cursor.execute("SELECT DISTINCT abnormality_type FROM flow_abnormalities")
+        results = self.cursor.fetchall()
+        self.logger.info(f"Retrieved all abnormality types: {results}")
         return [row[0] for row in results]
 
     def execute_custom_query(self, query, params=None):
@@ -129,3 +137,4 @@ class FlowAbnormalityDB:
         # Close the database connection
         self.connection.close()
         self.logger.info("Closed database connection")
+
