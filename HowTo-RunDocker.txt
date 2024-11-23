@@ -32,7 +32,7 @@ Open terminal on the project directory and run the following command:
 docker compose up -d
 
 Then open 2 terminals, on each run:
-docker docker exec -it <container name> bash
+docker exec -it <container name> bash
 
 when done, on the main terminal run:
 docker compose down
