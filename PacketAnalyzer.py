@@ -45,18 +45,23 @@ class PacketAnalyzer:
             "SYN Packets": defaultdict(list),  # Dictionary to store SYN packets as a list of timestamps
             "RST Packets": defaultdict(list),  # Dictionary to store RST packets as a list of timestamps
             "FTP": defaultdict(list),  # Dictionary to store FTP packets as a list of timestamps
-            "SMB Authentication": defaultdict(list), # Dictionary to store SMB authentication packets as a list of timestamps
-            "IMAP Authentication": defaultdict(list),  # Dictionary to store IMAP authentication packets as a list of timestamps
+            "SMB Authentication": defaultdict(list),
+            # Dictionary to store SMB authentication packets as a list of timestamps
+            "IMAP Authentication": defaultdict(list),
+            # Dictionary to store IMAP authentication packets as a list of timestamps
             "IMAP DoS": defaultdict(list),  # Dictionary to store IMAP DoS packets as a list of timestamps
-            "POP3 Authentication": defaultdict(list),  # Dictionary to store POP3 authentication packets as a list of timestamps
+            "POP3 Authentication": defaultdict(list),
+            # Dictionary to store POP3 authentication packets as a list of timestamps
             "POP3 Data Exfiltration": defaultdict(list)  # Dictionary to store POP3 DoS packets as a list of timestamps
         }
         self.UDP = {
             "DNS": {
                 "Query": None,  # Will store the IP address of the DNS query
                 "Response": None,  # Will store the IP address of the DNS response
-                "ID": {},  # Will store the ID of the DNS queries and False to represent that the response has not been received
-                "Suspected Tunneling": defaultdict(list) # Dictionary to store suspected DNS tunneling packets as a list of timestamps
+                "ID": {},
+                # Will store the ID of the DNS queries and False to represent that the response has not been received
+                "Suspected Tunneling": defaultdict(list)
+                # Dictionary to store suspected DNS tunneling packets as a list of timestamps
             },
             "MDNS": False,
             "DHCP": {
@@ -65,14 +70,18 @@ class PacketAnalyzer:
         }
 
         self.ICMP = {
-            "Request": False,   # Boolean to store if ICMP request packet is detected
-            "High Traffic": defaultdict(list), # Dictionary to store high traffic ICMP packets as a list of timestamps
+            "Request": False,  # Boolean to store if ICMP request packet is detected
+            "High Traffic": defaultdict(list),  # Dictionary to store high traffic ICMP packets as a list of timestamps
             "Traceroute": defaultdict(list),  # Dictionary to store traceroute ICMP packets as a list of timestamps
-            "Destination Unreachable": defaultdict(list),  # Dictionary to store destination unreachable ICMP packets as a list of timestamps
+            "Destination Unreachable": defaultdict(list),
+            # Dictionary to store destination unreachable ICMP packets as a list of timestamps
             "IPv6 Packets": defaultdict(list),  # Dictionary to store IPv6 ICMP packets as a list of timestamps
-            "IPv6 Traceroute": defaultdict(list),  # Dictionary to store IPv6 traceroute ICMP packets as a list of timestamps
-            "IPv6 Redirect": defaultdict(list),  # Dictionary to store IPv6 redirect ICMP packets as a list of timestamps
-            "IPv6 Amplification": defaultdict(list)  # Dictionary to store IPv6 amplification ICMP packets as a list of timestamps
+            "IPv6 Traceroute": defaultdict(list),
+            # Dictionary to store IPv6 traceroute ICMP packets as a list of timestamps
+            "IPv6 Redirect": defaultdict(list),
+            # Dictionary to store IPv6 redirect ICMP packets as a list of timestamps
+            "IPv6 Amplification": defaultdict(list)
+            # Dictionary to store IPv6 amplification ICMP packets as a list of timestamps
         }
 
         self.SSH = {
@@ -157,8 +166,8 @@ class PacketAnalyzer:
             elif packet.haslayer(ICMP):
                 self.process_icmp(packet)
         elif IPv6 in packet:
-           if packet.haslayer(ICMPv6Unknown):
-               self.process_icmpv6(packet)
+            if packet.haslayer(ICMPv6Unknown):
+                self.process_icmpv6(packet)
 
     def process_tcp(self, packet):
 
@@ -284,7 +293,6 @@ class PacketAnalyzer:
         if packet[TCP].dport == 110 or packet[TCP].sport == 110:  # Check for POP3 port (default 110)
             self.process_pop3(packet)
 
-
     def process_pop3(self, packet: scapy.Packet):
         if packet.haslayer(Raw):
             data = packet[Raw].load.decode('utf-8', errors='ignore')  # Get the raw payload as text
@@ -298,7 +306,8 @@ class PacketAnalyzer:
             if "RETR" in data:
                 self.check_times(self.TCP["POP3 Data Exfiltration"], PacketAnalyzer.get_sender_ip(packet),
                                  timedelta(seconds=5), 30,
-                                 anomaly_type="POP3 Abnormality", description="Suspected command flooding/Data Exfiltration",
+                                 anomaly_type="POP3 Abnormality",
+                                 description="Suspected command flooding/Data Exfiltration",
                                  level=AbnormalityType.WARNING)
 
     def process_imap(self, packet: scapy.Packet):
@@ -346,7 +355,6 @@ class PacketAnalyzer:
                          anomaly_type="FTP Abnormality", description="Brute force attack detected",
                          level=AbnormalityType.ALERT)
 
-
     def process_ssh(self, packet: scapy.Packet):
         # TODO: Test functionality
         self.logger.info("Processing SSH packet")
@@ -366,7 +374,7 @@ class PacketAnalyzer:
             self.add_abnormality(anomaly)
 
         # Analyze failed login attempts (TCP RST for example)
-        src_ip = PacketAnalyzer.get_sender_ip(packet)   # Modular for both IP and IPv6
+        src_ip = PacketAnalyzer.get_sender_ip(packet)  # Modular for both IP and IPv6
         if tcp_layer.flags & RST:  # TCP RST could indicate failed attempt
             self.SSH["failed_attempts"][src_ip].append(datetime.now())
             # Check if there was an attempted brute force attack
@@ -484,7 +492,6 @@ class PacketAnalyzer:
                                           level=AbnormalityType.ALERT)
                 self.add_abnormality(anomaly)
 
-
             # Add the resolved IP to the list of resolved IPs
             for address in dns.an:
                 self.__resolvedIPs.append(address)
@@ -513,7 +520,6 @@ class PacketAnalyzer:
                                               description="MDNS packet is not authoritative",
                                               level=AbnormalityType.FLAGS_VIOLATION)
                     self.add_abnormality(anomaly)
-
 
             if self.UDP["MDNS"]:
                 ip = packet[IP].dst
@@ -564,7 +570,6 @@ class PacketAnalyzer:
                                       level=AbnormalityType.PAYLOAD_VIOLATION)
             self.add_abnormality(anomaly)
 
-
     def process_dns_header(self, packet: scapy.Packet):
         dns = packet[DNS]
         # Check for abnormal header flags
@@ -605,7 +610,6 @@ class PacketAnalyzer:
                                       description="Invalid DNS Recursion Available flag",
                                       level=AbnormalityType.FLAGS_VIOLATION)
             self.add_abnormality(anomaly)
-
 
     def process_dhcp(self, packet: scapy.Packet) -> None:
         """
@@ -690,7 +694,6 @@ class PacketAnalyzer:
                                           level=AbnormalityType.ALERT)
                 self.add_abnormality(anomaly)
 
-
     def process_http(self, packet: scapy.Packet):
         # Check if the IP is in the resolved IPs list
         if packet[IP].dst not in self.__resolvedIPs:
@@ -752,41 +755,43 @@ class PacketAnalyzer:
                                           level=AbnormalityType.PAYLOAD_VIOLATION)
                 self.add_abnormality(anomaly)
 
-
     def process_mac(self, packet: scapy.Packet) -> None:
         """
         This function checks for IP-MAC mismatches.
         :param packet: The packet to check
         """
-        arp_layer = packet[ARP]
-        if arp_layer.op == 2:  # ARP Reply (op=2)
+        arp_layer = packet.getlayer(ARP)
+        if arp_layer and arp_layer.op == 2:  # ARP Reply (op=2)
             src_ip = arp_layer.psrc
             src_mac = arp_layer.hwsrc
 
             # Check for mismatches
-            if src_ip in self.__arp_table.keys():
-                if self.__arp_table[src_ip] != src_mac:
-                    anomaly = FlowAbnormality(abnormality_type="ARP Spoofing",
-                                              description=f"IP: {src_ip}, Expected MAC: {self.__arp_table[src_ip]},"
-                                                          f" Seen MAC: {src_mac}",
-                                              level=AbnormalityType.ALERT)
-                    self.add_abnormality(anomaly)
+            if src_ip in self.__arp_table:
+                # Store multiple MAC addresses for the same IP
+                if src_mac not in self.__arp_table[src_ip]:
+                    self.__arp_table[src_ip].add(src_mac)
+                    if len(self.__arp_table[src_ip]) > 1:
+                        # More than one MAC address observed for the same IP -> possible ARP Spoofing
+                        anomaly = FlowAbnormality(
+                            abnormality_type="ARP Spoofing",
+                            description=f"IP: {src_ip}, Conflicting MAC addresses: {', '.join(self.__arp_table[src_ip])}",
+                            level=AbnormalityType.ALERT)
+                        self.add_abnormality(anomaly)
             else:
-                # Add to ARP table
-                self.__arp_table[src_ip] = src_mac
+                # Add to ARP table with initial MAC address
+                self.__arp_table[src_ip] = {src_mac}
 
         elif packet.haslayer(IP) and packet.haslayer(Ether):  # Check for Ethernet traffic
             src_ip = packet[IP].src
             src_mac = packet[Ether].src
 
             # Validate IP-MAC mapping
-            if src_ip in self.__arp_table.keys() and self.__arp_table[src_ip] != src_mac:
-                anomaly = FlowAbnormality(abnormality_type="IP-MAC mismatch",
-                                          description=f"IP: {src_ip}, Expected MAC: {self.__arp_table[src_ip]},"
-                                                      f" Seen MAC: {src_mac}",
-                                          level=AbnormalityType.ALERT)
+            if src_ip in self.__arp_table and src_mac not in self.__arp_table[src_ip]:
+                anomaly = FlowAbnormality(
+                    abnormality_type="IP-MAC mismatch",
+                    description=f"IP: {src_ip}, Expected MAC: {', '.join(self.__arp_table[src_ip])}, Seen MAC: {src_mac}",
+                    level=AbnormalityType.ALERT)
                 self.add_abnormality(anomaly)
-
 
     def check_dos(self, packet: scapy.Packet):
         # Check for a DoS attack
@@ -838,26 +843,26 @@ class PacketAnalyzer:
         # Detect unusual types or codes
         if icmp_layer.type not in [0, 3, 8, 11]:
             anomaly = FlowAbnormality(abnormality_type="ICMP Abnormality",
-                                        description=f"Unusual ICMP type detected: {icmp_layer.type}",
-                                        level=AbnormalityType.HEADER_VIOLATION)
+                                      description=f"Unusual ICMP type detected: {icmp_layer.type}",
+                                      level=AbnormalityType.HEADER_VIOLATION)
             self.add_abnormality(anomaly)
         # Detect redirect messages
         if icmp_layer.type == 5:
             anomaly = FlowAbnormality(abnormality_type="ICMP Abnormality",
-                                        description=f"ICMP Redirect detected from {ip_layer.src} to {ip_layer.dst}",
-                                        level=AbnormalityType.ALERT)
+                                      description=f"ICMP Redirect detected from {ip_layer.src} to {ip_layer.dst}",
+                                      level=AbnormalityType.ALERT)
             self.add_abnormality(anomaly)
         # Detect ping amplification (broadcast requests)
         if icmp_layer.type == 8 and ip_layer.dst.endswith(".255"):
             anomaly = FlowAbnormality(abnormality_type="ICMP Abnormality",
-                                        description=f"Potential ICMP amplification: {ip_layer.src} -> {ip_layer.dst}",
-                                        level=AbnormalityType.WARNING)
+                                      description=f"Potential ICMP amplification: {ip_layer.src} -> {ip_layer.dst}",
+                                      level=AbnormalityType.WARNING)
             self.add_abnormality(anomaly)
         # Detect oversized packets (Ping of Death)
         if len(packet) > 65535:
             anomaly = FlowAbnormality(abnormality_type="ICMP Abnormality",
-                                        description=f"Ping of Death detected from {ip_layer.src} to {ip_layer.dst}",
-                                        level=AbnormalityType.PAYLOAD_VIOLATION)
+                                      description=f"Ping of Death detected from {ip_layer.src} to {ip_layer.dst}",
+                                      level=AbnormalityType.PAYLOAD_VIOLATION)
             self.add_abnormality(anomaly)
         # Detect traceroute (TTL exceeded)
         if icmp_layer.type == 11:
@@ -885,8 +890,8 @@ class PacketAnalyzer:
         # Detect unusual types or codes
         if icmpv6_layer.type not in [1, 2, 3, 4, 128, 129, 133, 134, 135, 136]:
             anomaly = FlowAbnormality(abnormality_type="ICMPv6 Abnormality",
-                                        description=f"Unusual ICMPv6 type detected: {icmpv6_layer.type}",
-                                        level=AbnormalityType.HEADER_VIOLATION)
+                                      description=f"Unusual ICMPv6 type detected: {icmpv6_layer.type}",
+                                      level=AbnormalityType.HEADER_VIOLATION)
             self.add_abnormality(anomaly)
 
         # Detect high traffic rate
@@ -899,14 +904,15 @@ class PacketAnalyzer:
                              "ICMPv6 Redirect detected (Possible MITM attack)", AbnormalityType.ALERT)
         # Detect ping amplification (broadcast requests)
         if packet.haslayer(ICMPv6ND_NS) and ip_layer.dst == "ff02::1":
-            self.check_times(self.ICMP["IPv6 Amplification"], ip_layer.src, timedelta(seconds=2), 5, "ICMPv6 Abnormality",
+            self.check_times(self.ICMP["IPv6 Amplification"], ip_layer.src, timedelta(seconds=2), 5,
+                             "ICMPv6 Abnormality",
                              "Potential ICMPv6 amplification", AbnormalityType.ALERT)
 
         # Detect oversized packets (Ping of Death)
         if len(packet) > 65535:
             anomaly = FlowAbnormality(abnormality_type="ICMPv6 Abnormality",
-                                        description=f"Ping of Death detected from {ip_layer.src} to {ip_layer.dst}",
-                                        level=AbnormalityType.PAYLOAD_VIOLATION)
+                                      description=f"Ping of Death detected from {ip_layer.src} to {ip_layer.dst}",
+                                      level=AbnormalityType.PAYLOAD_VIOLATION)
             self.add_abnormality(anomaly)
         # Detect traceroute (TTL exceeded)
         if packet.haslayer(ICMPv6TimeExceeded):
@@ -937,17 +943,14 @@ class PacketAnalyzer:
             self.add_abnormality(anomaly)
             del buffered_list[src_ip]
 
-
     def add_abnormality(self, anomaly: FlowAbnormality):
         if anomaly not in self.abnormalities.keys():
             self.abnormalities[anomaly] = 1
         else:
             self.abnormalities[anomaly] += 1
 
-
     def __hash__(self):
         return hash((self.src_ip, self.dst_ip, self.src_port, self.dst_port, self.protocol))
-
 
     def __eq__(self, other):
         if not isinstance(other, PacketAnalyzer):
@@ -960,24 +963,19 @@ class PacketAnalyzer:
                 (other.dst_ip, other.dst_port, other.src_ip, other.src_port, other.protocol)
         )
 
-
     def __ne__(self, other):
         return not self.__eq__(other)
 
-
     def __str__(self):
         return f"Packet: {self.src_ip}:{self.src_port} -> {self.dst_ip}:{self.dst_port} Protocol: {self.protocol}"
-
 
     def print(self):
         for key, value in self.abnormalities.items():
             print(f"Abnormality: {key} - Occurrences: {value}")
 
-
     def get_abnormalities(self):
         for abnormality in self.abnormalities.keys():
             yield abnormality
-
 
     @staticmethod
     def get_five_tuple(packet: scapy.Packet) -> tuple:
@@ -1014,7 +1012,6 @@ class PacketAnalyzer:
             packet.show()
             raise ValueError("Packet does not contain necessary information")
 
-
     @staticmethod
     def get_sender_ip(packet: scapy.Packet) -> Any | None:
         if IP in packet:
@@ -1023,4 +1020,3 @@ class PacketAnalyzer:
             return packet[IPv6].src
         else:
             raise ValueError("Packet does not contain IP information")
-

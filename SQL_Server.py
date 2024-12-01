@@ -133,6 +133,12 @@ class FlowAbnormalityDB:
             self.logger.error(f"Error executing query: {e}")
             return f"Error executing query: {e}"
 
+    def fetch_all_abnormalities(self):
+        # Fetch all records from the table
+        self.cursor.execute("SELECT * FROM flow_abnormalities")
+        results = self.cursor.fetchall()
+        return results
+
     def close(self):
         # Close the database connection
         self.connection.close()

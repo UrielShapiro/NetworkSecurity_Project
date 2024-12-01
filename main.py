@@ -24,6 +24,7 @@ RESET = "\033[0m"  # Reset to default color
 
 class IDS:
     def __init__(self, sniff_flag: bool, sniff_interface: str = None, pcap_path: str = None):
+        self.test_mode = False
         self.snifferFlag = sniff_flag
         self.__running = False
         self.__sniffing_thread = None
@@ -70,19 +71,20 @@ class IDS:
         self.__sniffing_thread.join()
         self.__packet_analyzer_thread.join()
         self.logger.info("All IDS threads stopped")
-        for five_tuple, abnormality in self.flow_analyzer.get_abnormalities():  # Adding the abnormalities only after
-            # the analysis is done so that we won't traverse an updating dictionary
-            src = five_tuple[0]
-            dst = five_tuple[1]
-            src_port = five_tuple[2]
-            dst_port = five_tuple[3]
-            protocol = five_tuple[4]
-            self.db.insert_abnormality(src=src, dst=dst, src_port=src_port, dst_port=dst_port,
-                                       protocol=protocol, abnormality=abnormality)
+        if not self.test_mode:
+            for five_tuple, abnormality in self.flow_analyzer.get_abnormalities():  # Adding the abnormalities only after
+                # the analysis is done so that we won't traverse an updating dictionary
+                src = five_tuple[0]
+                dst = five_tuple[1]
+                src_port = five_tuple[2]
+                dst_port = five_tuple[3]
+                protocol = five_tuple[4]
+                self.db.insert_abnormality(src=src, dst=dst, src_port=src_port, dst_port=dst_port,
+                                           protocol=protocol, abnormality=abnormality)
         self.logger.info("Inserted all abnormalities into the database")
-        self.flow_analyzer.print()  # TODO: Remove from final code
         self.logger.info("User is now prompted using the database_handler method")
-        DBQueryGenerator.database_handler(self.db)
+        if not self.test_mode:
+            DBQueryGenerator.database_handler(self.db)
         self.logger.info("Database handler completed, IDS stopped")
 
     def sniff_packets(self):
@@ -161,6 +163,25 @@ class IDS:
         # Add the handler to the logger
         self.logger.addHandler(file_handler)
         return self.logger
+
+    def get_abnormalities(self):
+        """Returns all detected abnormalities from the flow analyzer."""
+        return self.flow_analyzer.get_abnormalities()
+
+    def get_db_abnormalities(self):
+        """Fetches all entries from the database for verification."""
+        return self.db.fetch_all_abnormalities()
+
+    def set_test_mode(self, test_flag: bool):
+        """Enables or disables test mode to avoid user prompts."""
+        self.test_mode = test_flag
+
+    def reset_analyzer(self):
+        """Resets flow analyzer and abnormalities for repeated unit testing."""
+        self.flow_analyzer.reset()
+        self.db.clear_all_abnormalities()
+        self.reading_done = False
+        self.analyzing_done = False
 
 
 def main(sniff_flag: bool, sniff_interface: str = None, pcap_path: str = None):
