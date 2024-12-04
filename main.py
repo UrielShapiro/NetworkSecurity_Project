@@ -71,6 +71,7 @@ class IDS:
         self.__sniffing_thread.join()
         self.__packet_analyzer_thread.join()
         self.logger.info("All IDS threads stopped")
+        self.flow_analyzer.print_flows()
         if not self.test_mode:
             for five_tuple, abnormality in self.flow_analyzer.get_abnormalities():  # Adding the abnormalities only after
                 # the analysis is done so that we won't traverse an updating dictionary
@@ -127,7 +128,7 @@ class IDS:
 
             # Process packet
             if packet in self.flow_analyzer:
-                self.flow_analyzer.update_packet(packet)
+                self.flow_analyzer.update_flow(packet)
             else:
                 self.flow_analyzer.add_packet(packet)
 
@@ -182,6 +183,9 @@ class IDS:
         self.db.clear_all_abnormalities()
         self.reading_done = False
         self.analyzing_done = False
+
+    def get_flow_analyzer(self):
+        return self.flow_analyzer   # For testing purposes
 
 
 def main(sniff_flag: bool, sniff_interface: str = None, pcap_path: str = None):
