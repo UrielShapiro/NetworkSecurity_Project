@@ -15,7 +15,7 @@ class FlowAnalyzer:
         return (src_ip, dst_ip, src_port, dst_port, protocol) in self.__flow_analysis.keys() or \
             (dst_ip, src_ip, dst_port, src_port, protocol) in self.__flow_analysis.keys()
 
-    def update_packet(self, packet: scapy.Packet):
+    def update_flow(self, packet: scapy.Packet):
         self.logger.debug(f"Updating flow with packet: {packet.summary()}")
         src_ip, dst_ip, src_port, dst_port, protocol = PacketAnalyzer.get_five_tuple(packet)
         flow_key = (src_ip, dst_ip, src_port, dst_port, protocol)
@@ -39,7 +39,7 @@ class FlowAnalyzer:
             for abnormality in packet_analyzer.get_abnormalities():
                 yield five_tuple, abnormality
 
-    def print(self):
+    def print_flows(self):
         total_number_of_packets = 0
         total_number_of_bytes = 0
         index = 1
