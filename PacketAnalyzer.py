@@ -34,6 +34,7 @@ class PacketAnalyzer:
         self.__resolvedIPs = []
         self.__requestedDomains = []
         self.__arp_table = {}
+        self.logger.info(f"Initializing packet analysis for packet: {packet.summary()}")
 
         self.TCP = {
             "SYN": False,
@@ -148,11 +149,13 @@ class PacketAnalyzer:
             self.analyze_packet(packet)
 
     def update_packet(self, packet: scapy.Packet):
+        self.logger.debug(f"Updating packet analysis for packet: {packet.summary()}")
         self.num_of_packets += 1
         self.total_data += len(packet)
         self.analyze_packet(packet)
 
     def analyze_packet(self, packet: scapy.Packet):
+        self.logger.debug(f"Analyzing packet: {packet.summary()}")
         # Check if it's an IP packet (IPv4)
         if ARP in packet:
             self.process_mac(packet)
@@ -163,13 +166,14 @@ class PacketAnalyzer:
                 self.process_tcp(packet)
             elif packet.haslayer(UDP):
                 self.process_udp(packet)
-            elif packet.haslayer(ICMP):
+            elif packet.haslayer(ICMP) or PacketAnalyzer.get_five_tuple(packet)[2] == 0 or PacketAnalyzer.get_five_tuple(packet)[3] == 0:
                 self.process_icmp(packet)
         elif IPv6 in packet:
             if packet.haslayer(ICMPv6Unknown):
                 self.process_icmpv6(packet)
 
     def process_tcp(self, packet):
+        self.logger.debug("Processing TCP packet")
 
         FIN = 0x01
         SYN = 0x02
@@ -255,6 +259,7 @@ class PacketAnalyzer:
             self.TCP["ACK Sender"] = PacketAnalyzer.get_sender_ip(packet)
 
         if self.TCP["SYN"] and self.TCP["SYN ACK"] and self.TCP["ACK"]:
+            # Check if the SYN, SYN-ACK and ACK senders are set as they should be
             if self.TCP["SYN Sender"] != self.TCP["ACK Sender"]:
                 anomaly = FlowAbnormality(abnormality_type="TCP Three-Way Handshake Abnormality",
                                           description="SYN sender and ACK sender are not the same",
@@ -294,6 +299,7 @@ class PacketAnalyzer:
             self.process_pop3(packet)
 
     def process_pop3(self, packet: scapy.Packet):
+        self.logger.debug("Processing POP3 packet")
         if packet.haslayer(Raw):
             data = packet[Raw].load.decode('utf-8', errors='ignore')  # Get the raw payload as text
             # Detect authentication failure (repeated incorrect USER/PASS commands)
@@ -311,6 +317,7 @@ class PacketAnalyzer:
                                  level=AbnormalityType.WARNING)
 
     def process_imap(self, packet: scapy.Packet):
+        self.logger.debug("Processing IMAP packet")
         # Check for IMAP commands
         if packet.haslayer(Raw):
             data = packet[Raw].load.decode('utf-8', errors='ignore')  # Get the raw payload as text
@@ -328,23 +335,24 @@ class PacketAnalyzer:
                                  description="Suspected command flooding", level=AbnormalityType.WARNING)
 
     def process_smb(self, packet: scapy.Packet):
-        if packet.haslayer(Raw):
-            data = packet[Raw].load
+        self.logger.debug("Processing SMB packet")
+        self.logger.debug("Packet has raw data")
+        data = bytes(packet[TCP].payload)  # Get the raw payload
+        self.logger.debug(f"Raw data: {data}")
 
-            if b"SMB_COM_SESSION_SETUP" in data:
-                if b"STATUS_ACCESS_DENIED" in data.upper():  # Common failure status
-                    self.check_times(self.TCP["SMB Authentication"], PacketAnalyzer.get_sender_ip(packet),
-                                     timedelta(seconds=5), 20, anomaly_type="SMB Abnormality",
-                                     description="Suspected brute force", level=AbnormalityType.WARNING)
+        if b"SMB_COM_SESSION_SETUP" in data and b"STATUS_ACCESS_DENIED" in data:  # Check for failed authentication response
+            self.check_times(self.TCP["SMB Authentication"], PacketAnalyzer.get_sender_ip(packet),
+                                timedelta(seconds=5), 20, anomaly_type="SMB Abnormality",
+                                description="Suspected brute force", level=AbnormalityType.WARNING)
 
-            # Detect suspicious access to administrative shares (e.g., C$, ADMIN$)
-            suspicious_shares = ["C$", "ADMIN$", "IPC$", "ADMIN"]
-            if any(share in data.decode(errors="ignore") for share in suspicious_shares):
-                anomaly = FlowAbnormality(
+        # Detect suspicious access to administrative shares (e.g., C$, ADMIN$)
+        suspicious_shares = ["C$", "ADMIN$", "IPC$", "ADMIN"]
+        if any(share in data.decode(errors="ignore") for share in suspicious_shares):
+            anomaly = FlowAbnormality(
                     abnormality_type="SMB Abnormality",
                     description=f"Suspicious access to share detected: {data.decode(errors='ignore')}",
                     level=AbnormalityType.ALERT)
-                self.add_abnormality(anomaly)
+            self.add_abnormality(anomaly)
 
     def process_ftp(self, packet: scapy.Packet):
         # Check for brute force attack
@@ -356,7 +364,6 @@ class PacketAnalyzer:
                          level=AbnormalityType.ALERT)
 
     def process_ssh(self, packet: scapy.Packet):
-        # TODO: Test functionality
         self.logger.info("Processing SSH packet")
 
         RST = 0x04
@@ -400,6 +407,7 @@ class PacketAnalyzer:
                 self.add_abnormality(anomaly)
 
     def process_udp(self, packet):
+        self.logger.debug("Processing UDP packet")
         # Check for DNS
         if DNS in packet:
             if packet[UDP].sport == 5353 or packet[UDP].dport == 5353:
@@ -412,6 +420,7 @@ class PacketAnalyzer:
             self.process_dhcp(packet)
 
     def process_dns(self, packet: scapy.Packet):
+        self.logger.debug("Processing DNS packet")
 
         TIME_WINDOW = timedelta(seconds=60)
         NARROW_TIME_WINDOW = timedelta(seconds=10)
@@ -424,6 +433,7 @@ class PacketAnalyzer:
         self.process_dns_header(packet)
 
         if dns.qr == 0:  # Query packet
+            self.logger.debug("DNS query packet detected")
             self.UDP["DNS"]["Query"] = PacketAnalyzer.get_sender_ip(packet)
             domain_name = dns.qd.qname.decode("utf-8") if packet[DNS].qd else ""
             # Extract domain and suffix using tldextract
@@ -459,25 +469,9 @@ class PacketAnalyzer:
                                           description="Long DNS query detected",
                                           level=AbnormalityType.WARNING)
                 self.add_abnormality(anomaly)
-            # TODO: Remove this code
-            # current_time = datetime.now()
-            #
-            # # Append the current time to the list of timestamps for the source IP
-            # self.UDP["DNS"]["Suspected Tunneling"][src_ip].append(current_time)
-            #
-            # # Remove timestamps that are outside of the time window
-            # self.UDP["DNS"]["Suspected Tunneling"][src_ip] = [timestamp for timestamp in
-            #                                                   self.UDP["DNS"]["Suspected Tunneling"][src_ip] if
-            #                                                   current_time - timestamp < TIME_WINDOW]
-            #
-            # # Check if the number of requests exceeds the threshold
-            # if len(self.UDP["DNS"]["Suspected Tunneling"][src_ip]) > DNS_REQUEST_THRESHOLD:
-            #     anomaly = FlowAbnormality(abnormality_type="DNS Abnormality",
-            #                                 description="Potential DNS tunneling detected",
-            #                                 level=AbnormalityType.WARNING)
-            #     self.add_abnormality(anomaly)
 
         elif dns.qr == 1:  # Response packet
+            self.logger.debug("DNS response packet detected")
             if not self.UDP["DNS"]["Query"]:  # Check if there was a query before the response
                 anomaly = FlowAbnormality(abnormality_type="DNS Abnormality",
                                           description="DNS response without a query",
@@ -571,6 +565,11 @@ class PacketAnalyzer:
             self.add_abnormality(anomaly)
 
     def process_dns_header(self, packet: scapy.Packet):
+        """
+        This function processes the DNS header and checks for abnormalities
+        :param packet: the DNS packet to check
+        :return: None
+        """
         dns = packet[DNS]
         # Check for abnormal header flags
         if not dns.qr in [0, 1]:
@@ -616,7 +615,7 @@ class PacketAnalyzer:
         This function processes DHCP packets and checks for abnormalities
         :param packet: the DHCP packet to check
         """
-
+        self.logger.debug("Processing DHCP packet")
         bootp = packet[BOOTP]
         dhcp = packet[DHCP]
 
@@ -695,6 +694,7 @@ class PacketAnalyzer:
                 self.add_abnormality(anomaly)
 
     def process_http(self, packet: scapy.Packet):
+        self.logger.debug("Processing HTTP packet")
         # Check if the IP is in the resolved IPs list
         if packet[IP].dst not in self.__resolvedIPs:
             anomaly = FlowAbnormality(abnormality_type="HTTP Abnormality",
@@ -760,7 +760,8 @@ class PacketAnalyzer:
         This function checks for IP-MAC mismatches.
         :param packet: The packet to check
         """
-        arp_layer = packet.getlayer(ARP)
+        self.logger.debug("Processing MAC packet")
+        arp_layer = packet[ARP]
         if arp_layer and arp_layer.op == 2:  # ARP Reply (op=2)
             src_ip = arp_layer.psrc
             src_mac = arp_layer.hwsrc
@@ -794,6 +795,7 @@ class PacketAnalyzer:
                 self.add_abnormality(anomaly)
 
     def check_dos(self, packet: scapy.Packet):
+        self.logger.debug("Checking for DoS attack")
         # Check for a DoS attack
         SYN = 0x02
         RST = 0x04
@@ -807,36 +809,15 @@ class PacketAnalyzer:
                 self.check_times(self.TCP["SYN Packets"], src_ip, time_window, THRESHOLD,
                                  "SYN Flood Attack", f"More than {THRESHOLD} SYN packets in"
                                                      f" {time_window} seconds", AbnormalityType.ALERT)
-                # TODO: Remove this code
-                # self.TCP["SYN Packets"][src_ip].append(datetime.now())
-                # # Update the list of SYN packets with recent packets
-                # now = datetime.now()
-                # self.TCP["SYN Packets"][src_ip] = [t for t in self.TCP["SYN Packets"][src_ip] if now - t < time_window]
-                # if len(self.TCP["SYN Packets"]) > THRESHOLD:
-                #     anomaly = FlowAbnormality(abnormality_type="SYN Flood Attack",
-                #                               description=f"More than {THRESHOLD} SYN packets in {time_window} seconds",
-                #                               level=AbnormalityType.ALERT)
-                #     self.add_abnormality(anomaly)
-                #     del self.TCP["SYN Packets"][src_ip]  # Reset after reporting
 
             # Check for abnormal amount of RST packets
             if packet[TCP].flags & RST:
                 self.check_times(self.TCP["RST Packets"], src_ip, time_window, THRESHOLD,
                                  "RST Flood Attack", f"More than {THRESHOLD} RST packets in "
                                                      f"{time_window} seconds", AbnormalityType.ALERT)
-                # TODO: Remove this code
-                # self.TCP["RST Packets"][src_ip].append(datetime.now())
-                # # Update the list of RST packets with recent packets
-                # now = datetime.now()
-                # self.TCP["RST Packets"][src_ip] = [t for t in self.TCP["RST Packets"][src_ip] if now - t < time_window]
-                # if len(self.TCP["RST Packets"]) > THRESHOLD:
-                #     anomaly = FlowAbnormality(abnormality_type="DoS Attack",
-                #                               description=f"More than {THRESHOLD} RST packets in {time_window} seconds",
-                #                               level=AbnormalityType.ALERT)
-                #     self.add_abnormality(anomaly)
-                #     del self.TCP["RST Packets"][src_ip]
 
-    def process_icmp(self, packet):
+    def process_icmp(self, packet: scapy.Packet):
+        self.logger.debug("Processing ICMP packet")
         icmp_layer = packet[ICMP]
         ip_layer = packet[IP]
         # Detect high traffic rate (example: implement rate counter elsewhere)
@@ -858,10 +839,10 @@ class PacketAnalyzer:
                                       description=f"Potential ICMP amplification: {ip_layer.src} -> {ip_layer.dst}",
                                       level=AbnormalityType.WARNING)
             self.add_abnormality(anomaly)
-        # Detect oversized packets (Ping of Death)
-        if len(packet) > 65535:
+        # Detect oversized packets (ICMP tunneling)
+        if len(packet) > 100 or ip_layer.len > 100 or len(icmp_layer) > 100 or icmp_layer.data.len > 100:
             anomaly = FlowAbnormality(abnormality_type="ICMP Abnormality",
-                                      description=f"Ping of Death detected from {ip_layer.src} to {ip_layer.dst}",
+                                      description=f"ICMP Tunneling detected from {ip_layer.src} to {ip_layer.dst}",
                                       level=AbnormalityType.PAYLOAD_VIOLATION)
             self.add_abnormality(anomaly)
         # Detect traceroute (TTL exceeded)
@@ -885,6 +866,7 @@ class PacketAnalyzer:
                              "Potential flood or scanning activity", AbnormalityType.WARNING)
 
     def process_icmpv6(self, packet: scapy.Packet):
+        self.logger.debug("Processing ICMPv6 packet")
         icmpv6_layer = packet[ICMPv6Unknown]
         ip_layer = packet[IPv6]
         # Detect unusual types or codes
@@ -908,10 +890,10 @@ class PacketAnalyzer:
                              "ICMPv6 Abnormality",
                              "Potential ICMPv6 amplification", AbnormalityType.ALERT)
 
-        # Detect oversized packets (Ping of Death)
-        if len(packet) > 65535:
+        # Detect oversized packets (ICMPv6 tunneling)
+        if len(packet) > 100 or ip_layer.len > 100 or len(icmpv6_layer) > 100 or icmpv6_layer.data.len > 100:
             anomaly = FlowAbnormality(abnormality_type="ICMPv6 Abnormality",
-                                      description=f"Ping of Death detected from {ip_layer.src} to {ip_layer.dst}",
+                                      description=f"ICMP Tunneling detected from {ip_layer.src} to {ip_layer.dst}",
                                       level=AbnormalityType.PAYLOAD_VIOLATION)
             self.add_abnormality(anomaly)
         # Detect traceroute (TTL exceeded)
@@ -979,14 +961,17 @@ class PacketAnalyzer:
 
     @staticmethod
     def get_five_tuple(packet: scapy.Packet) -> tuple:
+        """
+        This function extracts the five-tuple from a packet
+        :param packet: The packet to extract the five-tuple from
+        :return: The five-tuple (source IP, destination IP, source port, destination port, protocol) of the packet
+        """
         src_ip, dst_ip, src_port, dst_port, protocol = None, None, None, None, None
         if IP in packet:
-            # print("Added IP Packet")
             src_ip = packet[IP].src
             dst_ip = packet[IP].dst
             protocol = packet[IP].proto
         elif IPv6 in packet:
-            # print("Added IPv6 Packet")
             src_ip = packet[IPv6].src
             dst_ip = packet[IPv6].dst
             protocol = packet[IPv6].nh
@@ -999,6 +984,8 @@ class PacketAnalyzer:
             dst_port = packet[UDP].dport
         elif ICMP in packet:
             protocol = packet[IP].proto
+            src_port = 0
+            dst_port = 0
         elif ARP in packet:
             protocol = packet[Ether].type
             src_ip = packet[ARP].psrc
@@ -1014,9 +1001,14 @@ class PacketAnalyzer:
 
     @staticmethod
     def get_sender_ip(packet: scapy.Packet) -> Any | None:
+        """
+        This function extracts the sender IP address from a packet
+        :param packet: The packet to extract the sender IP from
+        :return: The sender IP address
+        """
         if IP in packet:
             return packet[IP].src
         elif IPv6 in packet:
             return packet[IPv6].src
         else:
-            raise ValueError("Packet does not contain IP information")
+            return None
