@@ -92,7 +92,7 @@ def generate_pop3_pcaps(prefix):
     retr_packets = []
     for i in range(100):
         retr_packets.append(create_pop3_imap_smb_packet("192.168.1.1", "192.168.1.2", 110, 110, retr_data))
-    wrpcap("../pcaps/POP3/pop3_data_exfiltration.pcap", retr_packets)
+    wrpcap(f"{prefix}pop3_data_exfiltration.pcap", retr_packets)
 
     # Create multiple failed authentication attempts for brute force simulation
     brute_force_data = "USER testuser\r\nPASS incorrectpassword\r\nincorrect login"
@@ -100,14 +100,14 @@ def generate_pop3_pcaps(prefix):
     for i in range(500):
         brute_force_packets.append(
             create_pop3_imap_smb_packet("192.168.1.1", "192.168.1.2", 110, 110, brute_force_data))
-    wrpcap("../pcaps/POP3/multiple_pop3_authentication_failures.pcap", brute_force_packets)
+    wrpcap(f"{prefix}multiple_pop3_authentication_failures.pcap", brute_force_packets)
 
     # Create multiple RETR commands for command flooding/data exfiltration simulation
     retr_flood_data = "RETR 1\r\n"
     retr_flood_packets = []
     for i in range(100):
         retr_flood_packets.append(create_pop3_imap_smb_packet("192.168.1.1", "192.168.1.2", 110, 110, retr_flood_data))
-    wrpcap("../pcaps/POP3/multiple_retr_commands.pcap", retr_flood_packets)
+    wrpcap(f"{prefix}multiple_retr_commands.pcap", retr_flood_packets)
 
 
 def generate_imap_pcaps(prefix):
@@ -503,7 +503,18 @@ def generate_mac_pcap(prefix):
     wrpcap(f"{prefix}mac_abnormalities_extended.pcap", all_packets)
 
 
+def generate_folders():
+    if not os.path.exists("./pcaps"):
+        os.makedirs("./pcaps")
+    folders = ["./pcaps/TCP", "./pcaps/POP3", "./pcaps/IMAP", "./pcaps/SMB", "./pcaps/FTP", "./pcaps/SSH",
+               "./pcaps/DNS", "./pcaps/DHCP", "./pcaps/HTTP", "./pcaps/MAC"]
+    for folder in folders:
+        if not os.path.exists(folder):
+            os.makedirs(folder)
+
+
 if __name__ == "__main__":
+    generate_folders()
     generate_tcp_pcap("./pcaps/TCP/tcp_anomaly_test.pcap")
     generate_pop3_pcaps("./pcaps/POP3/")
     generate_imap_pcaps("./pcaps/IMAP/")
