@@ -73,7 +73,7 @@ class IDS:
         self.logger.info("All IDS threads stopped")
         self.flow_analyzer.print_flows()
         if not self.test_mode:
-            for five_tuple, abnormality in self.flow_analyzer.get_abnormalities():  # Adding the abnormalities only after
+            for five_tuple, abnormality in self.flow_analyzer.get_flows_abnormalities():  # Adding the abnormalities only after
                 # the analysis is done so that we won't traverse an updating dictionary
                 src = five_tuple[0]
                 dst = five_tuple[1]
@@ -102,7 +102,7 @@ class IDS:
             with self.cond:
                 self.packet_queue.put(p)
                 self.cond.notify()
-                self.logger.debug(f"Packet added to the queue: {p.summary()}, waking up the analyzer")
+                self.logger.debug(f"Packet added to the queue, waking up the analyzer")
                 self.logger.debug(f"Packet queue size: {self.packet_queue.qsize()}")
 
         with self.cond:
@@ -165,26 +165,11 @@ class IDS:
         self.logger.addHandler(file_handler)
         return self.logger
 
-    def get_abnormalities(self):
-        """Returns all detected abnormalities from the flow analyzer."""
-        return self.flow_analyzer.get_abnormalities()
-
-    def get_db_abnormalities(self):
+    def get_db_abnormalities(self): # Deprecated
         """Fetches all entries from the database for verification."""
         return self.db.fetch_all_abnormalities()
 
-    def set_test_mode(self, test_flag: bool):
-        """Enables or disables test mode to avoid user prompts."""
-        self.test_mode = test_flag
-
-    def reset_analyzer(self):
-        """Resets flow analyzer and abnormalities for repeated unit testing."""
-        self.flow_analyzer.reset()
-        self.db.clear_all_abnormalities()
-        self.reading_done = False
-        self.analyzing_done = False
-
-    def get_flow_analyzer(self):
+    def get_flow_analyzer(self):    # Deprecated
         return self.flow_analyzer   # For testing purposes
 
 
