@@ -1,0 +1,12 @@
+1. Build:
+docker build -t ids:test .
+
+2. Run Image
+docker run -it --rm ids:test
+
+3. Run project
+python3 main.py
+
+4. When done - Remove the container
+docker images
+docker rmi <image id>
