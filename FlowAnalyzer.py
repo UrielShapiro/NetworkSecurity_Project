@@ -33,7 +33,7 @@ class FlowAnalyzer:
         self.logger.info("Adding packet: " + packet.summary())
         self.__flow_analysis[PacketAnalyzer.get_five_tuple(packet)] = PacketAnalyzer(packet)
 
-    def get_abnormalities(self):
+    def get_flows_abnormalities(self):
         for five_tuple in self.__flow_analysis.keys():
             packet_analyzer = self.__flow_analysis.get(five_tuple)
             for abnormality in packet_analyzer.get_abnormalities():
