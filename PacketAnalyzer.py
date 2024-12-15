@@ -691,9 +691,10 @@ class PacketAnalyzer:
             http_response = packet[HTTPResponse]
 
             # Check for unusual status codes
-            if http_response.Status_Code not in range(100, 600):
+            http_status_code = int(http_response.Status_Code.decode())
+            if http_status_code not in range(100, 600):
                 anomaly = FlowAbnormality(abnormality_type="HTTP Abnormality",
-                                          description="Unusual HTTP status code",
+                                          description=f"Unusual HTTP status code: {http_status_code}",
                                           level=AbnormalityType.WARNING)
                 self.add_abnormality(anomaly)
 
