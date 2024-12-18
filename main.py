@@ -187,7 +187,7 @@ def main(sniff_flag: bool, sniff_interface: str = None, pcap_path: str = None):
         end = False  # Flag to end the outer loop
         while ids.snifferFlag:
             print(f"\n{GREEN}Analyzing packets...{RESET}")
-            stop = input("Would you like to stop the IDS? (y/n): ")
+            stop = input("Would you like to stop sniffing? (y/n): ")
             if stop.lower() == "y":
                 end = True
                 break
