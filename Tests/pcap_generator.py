@@ -479,22 +479,19 @@ def generate_mac_pcap(prefix):
     ))
 
     # Simulate Ethernet packets with mismatched IP-MAC addresses
-    eth_packets = []
+    eth_packets = [Ether(src="00:11:22:33:44:55", dst="ff:ff:ff:ff:ff:ff") / IP(
+        src="192.168.1.1", dst="192.168.1.2"
+    ), Ether(src="00:11:22:33:44:66", dst="ff:ff:ff:ff:ff:ff") / IP(
+        src="192.168.1.1", dst="192.168.1.2"
+    ), Ether(src="00:11:22:33:44:77", dst="ff:ff:ff:ff:ff:ff") / IP(
+        src="192.168.1.2", dst="192.168.1.2"
+    )]
 
     # Packet with correct MAC address for the IP
-    eth_packets.append(Ether(src="00:11:22:33:44:55", dst="ff:ff:ff:ff:ff:ff") / IP(
-        src="192.168.1.1", dst="192.168.1.2"
-    ))
 
     # Packet with mismatched MAC address for the IP (simulates IP-MAC mismatch detection)
-    eth_packets.append(Ether(src="00:11:22:33:44:66", dst="ff:ff:ff:ff:ff:ff") / IP(
-        src="192.168.1.1", dst="192.168.1.2"
-    ))
 
     # Packet with another mismatched MAC address
-    eth_packets.append(Ether(src="00:11:22:33:44:77", dst="ff:ff:ff:ff:ff:ff") / IP(
-        src="192.168.1.2", dst="192.168.1.2"
-    ))
 
     # Combine all packets
     all_packets = arp_requests + arp_replies + eth_packets
